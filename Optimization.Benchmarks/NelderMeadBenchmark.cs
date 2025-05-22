@@ -79,11 +79,11 @@ namespace Optimization.Benchmarks
             // var summary = BenchmarkRunner.Run<NelderMeadBenchmark>();
             
             // To run the Double Gauss Fit example (not a benchmark):
-            // DoubleGaussFitExample.RunExample();
+            DoubleGaussFitExample.RunExample(); // Focus on this for robustness check output
 
             // To run the Double Gauss Fit benchmark:
-            var summary = BenchmarkRunner.Run<DoubleGaussFitBenchmark>();
-            Console.WriteLine(summary);
+            // var summary = BenchmarkRunner.Run<DoubleGaussFitBenchmark>();
+            // Console.WriteLine(summary);
         }
     }
 } 

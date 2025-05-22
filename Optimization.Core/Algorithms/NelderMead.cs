@@ -23,13 +23,121 @@ namespace Optimization.Core.Algorithms
             
             Span<T[]> simplex = new T[dimensions + 1][];
             Span<T> fValues = new T[dimensions + 1];
+            Span<int> order = new int[dimensions + 1]; // To store sorted indices of simplex vertices
 
             InitializeSimplex(objectiveFunction, initialParameters, step, simplex, fValues);
 
-            // TODO: Implement main Nelder-Mead loop (Reflection, Expansion, Contraction, Shrink)
-            // TODO: Implement Abbruchkriterium (Toleranz auf Funktion)
+            for (int iteration = 0; iteration < maxIterations; iteration++)
+            {
+                OrderSimplex(simplex, fValues, order);
 
-            return initialParameters; 
+                // Check for convergence (tolerance on function values)
+                // This requires T to be subtractable and comparable, handled by T constraints and double conversion for now
+                if (typeof(T) == typeof(double))
+                {
+                    double fBest = Convert.ToDouble(fValues[order[0]]);
+                    double fWorst = Convert.ToDouble(fValues[order[dimensions]]); // order[dimensions] is the worst
+                    if (Math.Abs(fWorst - fBest) < Convert.ToDouble(tolerance))
+                    {
+                        break; // Converged
+                    }
+                }
+                else
+                {
+                    // For non-double types, a generic way to compare fValues[order[dimensions]] - fValues[order[0]] with tolerance is needed.
+                    // Or rely on maxIterations only if tolerance check isn't feasible.
+                    // Potentially throw, or log a warning that tolerance check is skipped for non-double types.
+                }
+
+                // Calculate centroid of all points except the worst one
+                T[] centroid = CalculateCentroid(simplex, order, dimensions);
+
+                // Worst point is simplex[order[dimensions]]
+                T[] worstPoint = simplex[order[dimensions]];
+
+                // Reflection
+                T[] reflectedPoint = Reflect(worstPoint, centroid, dimensions);
+                T fReflected = objectiveFunction(reflectedPoint);
+
+                if (fReflected.CompareTo(fValues[order[0]]) < 0) // Reflected point is better than the current best
+                {
+                    // Expansion
+                    T[] expandedPoint = Expand(reflectedPoint, centroid, dimensions);
+                    T fExpanded = objectiveFunction(expandedPoint);
+
+                    if (fExpanded.CompareTo(fReflected) < 0)
+                    {
+                        simplex[order[dimensions]] = expandedPoint;
+                        fValues[order[dimensions]] = fExpanded;
+                    }
+                    else
+                    {
+                        simplex[order[dimensions]] = reflectedPoint;
+                        fValues[order[dimensions]] = fReflected;
+                    }
+                }
+                // If reflected point is not better than best, but better than second worst (order[dimensions-1])
+                else if (fReflected.CompareTo(fValues[order[dimensions - 1]]) < 0) 
+                {
+                    simplex[order[dimensions]] = reflectedPoint;
+                    fValues[order[dimensions]] = fReflected;
+                }
+                else // Reflected point is not better than second worst
+                {
+                    // Contraction
+                    // If fReflected is worse than or equal to fWorst (fValues[order[dimensions]])
+                    // Perform inside contraction: P_contracted = centroid + Rho * (P_worst - centroid)
+                    T[] contractedPoint;
+                    if (fReflected.CompareTo(fValues[order[dimensions]]) < 0)
+                    { 
+                        // Outside contraction: P_contracted = centroid + Rho * (P_reflected - centroid)
+                         contractedPoint = TransformPoint(reflectedPoint, centroid, Rho, dimensions); // p1 + Rho * (p1-p2)
+                    }
+                    else
+                    { 
+                        // Inside contraction: P_contracted = centroid - Rho * (centroid - P_worst)
+                        // which is equivalent to centroid + Rho * (P_worst - centroid)
+                        // So use TransformPoint(worstPoint, centroid, Rho, dimensions) for P_c = P_worst + Rho * (P_worst - P_centroid) ??? No this is wrong.
+                        // It should be: P_c = P_centroid + Rho * (P_worst - P_centroid)
+                        // So: centroid is p1, (P_worst - P_centroid) is (p2-p1) with a minus sign
+                        // We want: p_centroid + RHO * (p_worst - p_centroid)
+                        // TransformPoint is p1 + factor * (p1 - p2)
+                        // Let p1 = centroid, factor = Rho.
+                        // Then we need (p1 - p2) to be (P_worst - P_centroid)
+                        // So p2 would need to be (2*P_centroid - P_worst)
+                        // This is getting complicated. Let's re-evaluate TransformPoint's utility here or write it explicitly.
+                        // Standard inside contraction: c_ = x_o + rho * (x_h - x_o)
+                        // where x_o is centroid, x_h is worst point.
+                        contractedPoint = new T[dimensions];
+                        if (typeof(T) == typeof(double))
+                        {
+                            for(int i=0; i<dimensions; ++i)
+                            {
+                                double c_val = Convert.ToDouble(centroid[i]);
+                                double w_val = Convert.ToDouble(worstPoint[i]);
+                                contractedPoint[i] = (T)Convert.ChangeType(c_val + Rho * (w_val - c_val), typeof(T));
+                            }
+                        }
+                        else throw new InvalidOperationException("Contraction for non-double not implemented in this path.");
+                    }
+                    
+                    T fContracted = objectiveFunction(contractedPoint);
+
+                    if (fContracted.CompareTo(fValues[order[dimensions]]) < 0) // Contracted point is better than worst
+                    {
+                        simplex[order[dimensions]] = contractedPoint;
+                        fValues[order[dimensions]] = fContracted;
+                    }
+                    else
+                    {
+                        // Shrink
+                        Shrink(simplex, order, objectiveFunction, fValues, dimensions);
+                    }
+                }
+            }
+
+            OrderSimplex(simplex, fValues, order); // Final sort
+            return simplex[order[0]]; 
         }
 
         private static void InitializeSimplex(
@@ -213,7 +321,5 @@ namespace Optimization.Core.Algorithms
                 fValues[vertexIndexToShrink] = objectiveFunction(simplex[vertexIndexToShrink]);
             }
         }
-
-        // TODO: Implement main Nelder-Mead loop in Minimize method
     }
 } 

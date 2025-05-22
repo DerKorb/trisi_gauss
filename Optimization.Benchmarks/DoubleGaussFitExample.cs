@@ -83,51 +83,79 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
                 Console.WriteLine($"Our Time: {watchOur.ElapsedMilliseconds} ms");
             }
 
-            // --- Running NLopt (NelderMead with Bounds) ---
-            if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (NelderMead with Bounds) ---");
-            // NLopt requires double[] for initial parameters
+            // --- NLopt Trials with different initial step strategies ---
             double[] initialParametersNlopt = (double[])initialParameters.Clone();
-            var watchNLopt = System.Diagnostics.Stopwatch.StartNew();
+            var stepStrategies = new System.Collections.Generic.Dictionary<string, double[]>();
+
+            // Strategy 1: Small percentage of initial guess (similar to previous failing attempt)
+            double[] stepsPctInitial = new double[initialParametersNlopt.Length];
+            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsPctInitial[i] = Math.Max(0.01, Math.Abs(initialParametersNlopt[i] * 0.05)); // 5% or min 0.01
+            stepStrategies.Add("5%_Initial_Min0.01", stepsPctInitial);
+
+            // Strategy 2: Moderate fixed absolute step
+            double[] stepsFixedModerate = new double[initialParametersNlopt.Length];
+            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsFixedModerate[i] = 0.5;
+            stepStrategies.Add("Fixed_0.5", stepsFixedModerate);
             
-            // Create initial steps for NLopt 
-            double[] nloptInitialSteps = new double[initialParametersNlopt.Length];
-            for(int i=0; i < initialParametersNlopt.Length; ++i)
+            // Strategy 3: Larger fixed absolute step
+            double[] stepsFixedLarge = new double[initialParametersNlopt.Length];
+            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsFixedLarge[i] = 2.0;
+            stepStrategies.Add("Fixed_2.0", stepsFixedLarge);
+
+            // Strategy 4: Steps as a fraction of bounds range
+            double[] stepsFractionOfRange = new double[initialParametersNlopt.Length];
+            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsFractionOfRange[i] = Math.Max(0.1, (upperBounds[i] - lowerBounds[i]) * 0.1); // 10% of range or min 0.1
+            stepStrategies.Add("10%_BoundsRange_Min0.1", stepsFractionOfRange);
+            
+            // Strategy 5: NLopt default (pass null for initialStepArray)
+            stepStrategies.Add("NLopt_Default_Steps", null);
+
+
+            NLoptWrapper.NLoptResultData resultNLopt = null; // To store the best NLopt result for CSV
+
+            foreach(var strategy in stepStrategies)
             {
-                // nloptInitialSteps[i] = Math.Max(0.1, Math.Abs(initialParametersNlopt[i] * 0.2)); // Old: 20% or at least 0.1
-                nloptInitialSteps[i] = 1.0; // New: Try a fixed aggressive step of 1.0 for all parameters
+                if (!csvOutputOnly) Console.WriteLine($"\n--- Running NLopt (NelderMead with Bounds, Steps: {strategy.Key}) ---");
+                double[] currentInitialParamsNlopt = (double[])initialParameters.Clone(); // Reset for each strategy
+
+                var watchNLopt = System.Diagnostics.Stopwatch.StartNew();
+                var currentNLoptResult = NLoptWrapper.OptimizeNelderMead(
+                    ourObjectiveFunc, currentInitialParamsNlopt, lowerBounds, upperBounds,
+                    strategy.Value, // Pass the step array for current strategy
+                    ftol_rel: 1e-7, xtol_rel: 1e-7, 
+                    ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
+                watchNLopt.Stop();
+                
+                if (!csvOutputOnly)
+                {
+                    PrintParameters($"NLopt ({strategy.Key}) Found", currentNLoptResult.OptimalParameters, csvOutputOnly);
+                    Console.WriteLine($"NLopt ({strategy.Key}) SSR: {currentNLoptResult.OptimalValue:E2}");
+                    Console.WriteLine($"NLopt ({strategy.Key}) Result: {currentNLoptResult.ResultMessage} ({currentNLoptResult.ResultCode})");
+                    Console.WriteLine($"NLopt ({strategy.Key}) Time: {watchNLopt.ElapsedMilliseconds} ms");
+                }
+                 // Keep the result that gives the best SSR for plotting
+                if (resultNLopt == null || (currentNLoptResult.OptimalParameters != null && currentNLoptResult.OptimalValue < resultNLopt.OptimalValue))
+                {
+                    resultNLopt = currentNLoptResult;
+                }
+            }
+            
+            if (!csvOutputOnly && resultNLopt != null) {
+                 Console.WriteLine("\n--- Best NLopt result (used for plot) ---");
+                 PrintParameters("Best NLopt Plot", resultNLopt.OptimalParameters, csvOutputOnly);
+                 Console.WriteLine($"Best NLopt Plot SSR: {resultNLopt.OptimalValue:E2}");
             }
 
-            NLoptWrapper.NLoptResultData resultNLopt = NLoptWrapper.OptimizeNelderMead(
-                ourObjectiveFunc, initialParametersNlopt, lowerBounds, upperBounds,
-                nloptInitialSteps, 
-                ftol_rel: 1e-7, 
-                xtol_rel: 1e-7, 
-                ftol_abs: 1e-8,     // Pass absolute tolerances
-                xtol_abs_val: 1e-8, // Pass absolute tolerances
-                maxeval: 20000);
-            watchNLopt.Stop();
-            
-            if (!csvOutputOnly) 
-            {
-                PrintParameters("NLopt Found", resultNLopt.OptimalParameters, csvOutputOnly);
-                Console.WriteLine($"NLopt SSR: {resultNLopt.OptimalValue:E2}");
-                Console.WriteLine($"NLopt Result: {resultNLopt.ResultMessage} ({resultNLopt.ResultCode})");
-                Console.WriteLine($"NLopt Time: {watchNLopt.ElapsedMilliseconds} ms");
-            }
-
-            if (csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData"); // Header only in CSV mode
+            if (csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
             else Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
-            if (!csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData"); // Redundant if csvOutputOnly, but fine
+            if (!csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
 
-            // For smoother function plots, we can use a denser set of X values than just xData
-            // Or, for simplicity, just use the xData points and connect them in the plot.
-            // Let's use xData for direct comparison with noisy points.
             for(int i=0; i < xData.Length; ++i)
             {
                 double currentX = xData[i];
                 double yTrue = DoubleGaussModel.Calculate(currentX, trueParameters);
                 double yFittedOur = DoubleGaussModel.Calculate(currentX, bestParametersOur);
-                double yFittedNLopt = (resultNLopt.OptimalParameters != null) ? DoubleGaussModel.Calculate(currentX, resultNLopt.OptimalParameters) : double.NaN;
+                double yFittedNLopt = (resultNLopt != null && resultNLopt.OptimalParameters != null) ? DoubleGaussModel.Calculate(currentX, resultNLopt.OptimalParameters) : double.NaN;
                 double yNoisy = yData[i];
                 Console.WriteLine($"{currentX:F2},{yTrue:F4},{yFittedOur:F4},{yFittedNLopt:F4},{yNoisy:F4}");
             }
@@ -147,7 +175,12 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
 
         private static void PrintParameters(string label, ReadOnlySpan<double> parameters, bool csvOutputOnly = false)
         {
-            if (csvOutputOnly) return; // Don't print parameters in CSV-only mode
+            if (csvOutputOnly && !label.Contains("Best NLopt Plot")) return; // Only print best NLopt in CSV for brevity, or nothing else
+            if (csvOutputOnly && label.Contains("Best NLopt Plot")) {
+                 Console.WriteLine($"# {label}: A1={parameters[0]:F2}, mu1={parameters[1]:F2}, sigma1={parameters[2]:F2}, " +
+                                  $"A2={parameters[3]:F2}, mu2={parameters[4]:F2}, sigma2={parameters[5]:F2} SSR: {DoubleGaussModel.SumSquaredResiduals(parameters, null, null):E2} -- Placeholder SSR for comment");
+                 return;
+            }
 
             if (parameters != null && parameters.Length == 6)
             {

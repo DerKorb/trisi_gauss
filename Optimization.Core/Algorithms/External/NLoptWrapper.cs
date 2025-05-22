@@ -72,6 +72,12 @@ namespace Optimization.Core.Algorithms.External
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         private static extern nlopt_result nlopt_set_xtol_rel(IntPtr opt, double tol); // Added for xtol_rel
 
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern nlopt_result nlopt_set_xtol_abs(IntPtr opt, double[] tol_array); // Added for xtol_abs
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern nlopt_result nlopt_set_ftol_abs(IntPtr opt, double tol);     // Added for ftol_abs
+
         // --- Helper to convert nlopt_result to string ---
         public static string ResultToString(nlopt_result result)
         {
@@ -105,13 +111,15 @@ namespace Optimization.Core.Algorithms.External
         private static nlopt_func_delegate _cachedObjectiveDelegate;
 
         public static NLoptResultData OptimizeNelderMead(
-            ObjectiveFunctionDouble objectiveFunction, // Our C# objective function
+            ObjectiveFunctionDouble objectiveFunction, 
             double[] initialParameters,
             double[] lowerBounds,
             double[] upperBounds,
-            double[] initialStepArray, // Changed from single double to array
-            double ftol_rel = 1e-8,
-            double xtol_rel = 1e-8, // Added xtol_rel
+            double[] initialStepArray, 
+            double ftol_rel = 1e-7, // Keep the relaxed ftol_rel for robustness test
+            double xtol_rel = 1e-7, 
+            double ftol_abs = 1e-8, // Added ftol_abs
+            double xtol_abs_val = 1e-8, // Value for each element of xtol_abs array
             int maxeval = 20000)
         {
             uint n = (uint)initialParameters.Length;
@@ -121,14 +129,10 @@ namespace Optimization.Core.Algorithms.External
                 opt = nlopt_create(nlopt_algorithm.NLOPT_LN_NELDERMEAD, n);
                 if (opt == IntPtr.Zero) throw new Exception("Failed to create NLopt optimizer.");
 
-                // Wrap our C# objective function for NLopt
-                // The GCHandle is used to pass a reference to our C# objective function state (if any, not used here)
-                // to the C callback. We are not using func_data here, so IntPtr.Zero.
                 _cachedObjectiveDelegate = (num_params, x_native_ptr, gradient_native_ptr, func_data_native_ptr) =>
                 {
                     double[] x = new double[num_params];
                     Marshal.Copy(x_native_ptr, x, 0, (int)num_params);
-                    // NLopt's NelderMead doesn't use gradients, so gradient_native_ptr can be ignored.
                     return objectiveFunction(x);
                 };
                 
@@ -141,17 +145,22 @@ namespace Optimization.Core.Algorithms.External
                 {
                     nlopt_set_initial_step(opt, initialStepArray);
                 }
-                else if (initialStepArray != null) // if provided but wrong length
+                else if (initialStepArray != null) 
                 {
                      throw new ArgumentException("initialStepArray length must match dimensions.", nameof(initialStepArray));
                 }
-                // If initialStepArray is null, NLopt uses its default.
 
                 nlopt_set_ftol_rel(opt, ftol_rel);
-                nlopt_set_xtol_rel(opt, xtol_rel); // Set xtol_rel
+                nlopt_set_xtol_rel(opt, xtol_rel);
+                nlopt_set_ftol_abs(opt, ftol_abs); // Set ftol_abs
+                
+                double[] xtol_abs_array = new double[n];
+                for(int i=0; i<n; ++i) xtol_abs_array[i] = xtol_abs_val;
+                nlopt_set_xtol_abs(opt, xtol_abs_array); // Set xtol_abs
+
                 nlopt_set_maxeval(opt, maxeval);
 
-                double[] x_opt = (double[])initialParameters.Clone(); // NLopt modifies this array
+                double[] x_opt = (double[])initialParameters.Clone(); 
                 double minf;
                 
                 nlopt_result result = nlopt_optimize(opt, x_opt, out minf);

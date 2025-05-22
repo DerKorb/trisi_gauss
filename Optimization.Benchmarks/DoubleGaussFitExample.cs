@@ -77,18 +77,21 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             double[] initialParametersNlopt = (double[])initialParameters.Clone();
             var watchNLopt = System.Diagnostics.Stopwatch.StartNew();
             
-            // Create initial steps for NLopt (e.g., 20% of initial parameter values, with a minimum step)
+            // Create initial steps for NLopt 
             double[] nloptInitialSteps = new double[initialParametersNlopt.Length];
             for(int i=0; i < initialParametersNlopt.Length; ++i)
             {
-                nloptInitialSteps[i] = Math.Max(0.1, Math.Abs(initialParametersNlopt[i] * 0.2)); // 20% or at least 0.1
+                // nloptInitialSteps[i] = Math.Max(0.1, Math.Abs(initialParametersNlopt[i] * 0.2)); // Old: 20% or at least 0.1
+                nloptInitialSteps[i] = 1.0; // New: Try a fixed aggressive step of 1.0 for all parameters
             }
 
             NLoptWrapper.NLoptResultData resultNLopt = NLoptWrapper.OptimizeNelderMead(
                 ourObjectiveFunc, initialParametersNlopt, lowerBounds, upperBounds,
-                nloptInitialSteps, // Pass the initial step array
-                ftol_rel: 1e-7, // Slightly relaxed ftol for robustness test
-                xtol_rel: 1e-7, // Add xtol
+                nloptInitialSteps, 
+                ftol_rel: 1e-7, 
+                xtol_rel: 1e-7, 
+                ftol_abs: 1e-8,     // Pass absolute tolerances
+                xtol_abs_val: 1e-8, // Pass absolute tolerances
                 maxeval: 20000);
             watchNLopt.Stop();
             

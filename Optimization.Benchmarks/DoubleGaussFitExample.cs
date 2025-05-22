@@ -1,8 +1,9 @@
 using System;
 using Optimization.Core.Algorithms;
 using Optimization.Core.Models;
-using MathNet.Numerics.LinearAlgebra; // For MathNet comparison
-using MathNetNumericsOptimization = MathNet.Numerics.Optimization; // For MathNet comparison
+using Optimization.Core.Algorithms.External; // For NLoptWrapper
+// using MathNet.Numerics.LinearAlgebra; // No longer needed for MathNet
+// using MathNetNumericsOptimization = MathNet.Numerics.Optimization; // No longer needed for MathNet
 
 namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a separate project
 {
@@ -70,32 +71,24 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             Console.WriteLine($"Our SSR: {DoubleGaussModel.SumSquaredResiduals(bestParametersOur, xData, yData):E2}");
             Console.WriteLine($"Our Time: {watchOur.ElapsedMilliseconds} ms");
 
-            // --- MathNet.Numerics NelderMeadSimplex Implementation ---
-            Console.WriteLine("\n--- Running MathNet.Numerics NelderMeadSimplex ---");
-            Func<Vector<double>, double> mathNetObjectiveFunc = (parsVec) =>
-                DoubleGaussModel.SumSquaredResiduals(parsVec.AsArray(), xData, yData);
+            // --- Running NLopt (NelderMead with Bounds) ---
+            Console.WriteLine("\n--- Running NLopt (NelderMead with Bounds) ---");
+            // NLopt requires double[] for initial parameters
+            double[] initialParametersNlopt = (double[])initialParameters.Clone();
+            var watchNLopt = System.Diagnostics.Stopwatch.StartNew();
+            NLoptWrapper.NLoptResultData resultNLopt = NLoptWrapper.OptimizeNelderMead(
+                ourObjectiveFunc, initialParametersNlopt, lowerBounds, upperBounds,
+                ftol_rel: 1e-8, maxeval: 20000);
+            watchNLopt.Stop();
             
-            var initialGuessMathNet = Vector<double>.Build.Dense(initialParameters);
-            var solver = new MathNetNumericsOptimization.NelderMeadSimplex(convergenceTolerance: 1e-8, maximumIterations: 20000);
-            
-            var watchMathNet = System.Diagnostics.Stopwatch.StartNew();
-            // MathNet's basic NelderMeadSimplex does not directly take bounds array like ours.
-            // To compare fairly with bounds, one would typically wrap the objective function 
-            // with a penalty for MathNet, or use a MathNet solver that supports bounds.
-            // For this run, MathNet will be unconstrained as before, to highlight the effect of bounds on our impl.
-            var mathNetObjective = MathNetNumericsOptimization.ObjectiveFunction.Value(mathNetObjectiveFunc);
-            var resultMathNet = solver.FindMinimum(mathNetObjective, initialGuessMathNet);
-            watchMathNet.Stop();
-            
-            PrintParameters("MathNet Found", resultMathNet.MinimizingPoint.AsArray());
-            Console.WriteLine($"MathNet SSR: {resultMathNet.FunctionInfoAtMinimum.Value:E2}");
-            Console.WriteLine($"MathNet Iterations: {resultMathNet.Iterations}");
-            Console.WriteLine($"MathNet ReasonForExit: {resultMathNet.ReasonForExit}");
-            Console.WriteLine($"MathNet Time: {watchMathNet.ElapsedMilliseconds} ms");
+            PrintParameters("NLopt Found", resultNLopt.OptimalParameters);
+            Console.WriteLine($"NLopt SSR: {resultNLopt.OptimalValue:E2}");
+            Console.WriteLine($"NLopt Result: {resultNLopt.ResultMessage} ({resultNLopt.ResultCode})");
+            Console.WriteLine($"NLopt Time: {watchNLopt.ElapsedMilliseconds} ms");
 
             // --- Generate Data for Plotting ---
             Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
-            Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_MathNet,Y_NoisyData");
+            Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
             
             // For smoother function plots, we can use a denser set of X values than just xData
             // Or, for simplicity, just use the xData points and connect them in the plot.
@@ -105,9 +98,9 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
                 double currentX = xData[i];
                 double yTrue = DoubleGaussModel.Calculate(currentX, trueParameters);
                 double yFittedOur = DoubleGaussModel.Calculate(currentX, bestParametersOur);
-                double yFittedMathNet = DoubleGaussModel.Calculate(currentX, resultMathNet.MinimizingPoint.AsArray());
+                double yFittedNLopt = (resultNLopt.OptimalParameters != null) ? DoubleGaussModel.Calculate(currentX, resultNLopt.OptimalParameters) : double.NaN;
                 double yNoisy = yData[i];
-                Console.WriteLine($"{currentX:F2},{yTrue:F4},{yFittedOur:F4},{yFittedMathNet:F4},{yNoisy:F4}");
+                Console.WriteLine($"{currentX:F2},{yTrue:F4},{yFittedOur:F4},{yFittedNLopt:F4},{yNoisy:F4}");
             }
 
             // Comment out the old basic console visualization if we're outputting CSV data
@@ -125,14 +118,14 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
 
         private static void PrintParameters(string label, ReadOnlySpan<double> parameters)
         {
-            if (parameters.Length == 6)
+            if (parameters != null && parameters.Length == 6)
             {
                 Console.WriteLine($"{label}: A1={parameters[0]:F2}, mu1={parameters[1]:F2}, sigma1={parameters[2]:F2}, " +
                                   $"A2={parameters[3]:F2}, mu2={parameters[4]:F2}, sigma2={parameters[5]:F2}");
             }
             else
             {
-                Console.WriteLine($"{label}: Invalid parameter count {parameters.Length}");
+                Console.WriteLine($"{label}: Invalid or null parameters.");
             }
         }
     }

@@ -84,12 +84,51 @@ namespace Optimization.Core.Models
 
             double sumSqRes = 0.0;
 
-            // Standard loop-based calculation (SIMD fallback mentioned in plan can be an optimization later)
-            for (int i = 0; i < xData.Length; i++)
+            // SIMD optimization for SumSquaredResiduals
+            if (Vector.IsHardwareAccelerated && xData.Length >= Vector<double>.Count)
             {
-                double modelY = Calculate(xData[i], parameters);
-                double residual = yData[i] - modelY;
-                sumSqRes += residual * residual;
+                int vectorSize = Vector<double>.Count;
+                int i = 0;
+                // Process chunks of vectorSize
+                for (i = 0; i <= xData.Length - vectorSize; i += vectorSize)
+                {
+                    // Prepare vectors for xData and yData
+                    Span<double> xSlice = xData.Slice(i, vectorSize);
+                    Span<double> ySlice = yData.Slice(i, vectorSize);
+                    Vector<double> xVec = new Vector<double>(xSlice);
+                    Vector<double> yVec = new Vector<double>(ySlice);
+
+                    // Calculate modelY for each element in xVec (scalar calls, then construct vector)
+                    // This is the part not fully vectorized due to Math.Exp in Calculate
+                    double[] modelY_chunk_array = new double[vectorSize];
+                    for(int j=0; j < vectorSize; ++j)
+                    {
+                        modelY_chunk_array[j] = Calculate(xSlice[j], parameters); 
+                    }
+                    Vector<double> modelYVec = new Vector<double>(modelY_chunk_array);
+                    
+                    Vector<double> residualVec = yVec - modelYVec;
+                    Vector<double> squaredResidualVec = residualVec * residualVec;
+                    sumSqRes += Vector.Dot(squaredResidualVec, Vector<double>.One);
+                }
+
+                // Process remaining elements scalar way
+                for (; i < xData.Length; i++)
+                {
+                    double modelY = Calculate(xData[i], parameters);
+                    double residual = yData[i] - modelY;
+                    sumSqRes += residual * residual;
+                }
+            }
+            else
+            {
+                // Standard loop-based calculation (fallback if SIMD not accelerated or too few elements)
+                for (int i = 0; i < xData.Length; i++)
+                {
+                    double modelY = Calculate(xData[i], parameters);
+                    double residual = yData[i] - modelY;
+                    sumSqRes += residual * residual;
+                }
             }
 
             return sumSqRes;

@@ -8,7 +8,7 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
 {
     public static class DoubleGaussFitExample
     {
-        public static void RunExample(double noisePercentage = 0.20, bool useBadInitialGuess = true)
+        public static void RunExample(double noisePercentage = 0.15, bool useBadInitialGuess = true)
         {
             Console.WriteLine($"Running Double Gaussian Fit Example (Noise: {noisePercentage:P0}, Bad Guess: {useBadInitialGuess})...");
 
@@ -46,8 +46,12 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             Console.WriteLine("\n--- Initial Guess ---");
             PrintParameters("Initial", initialParameters);
 
+            // Define bounds for parameters [A1, mu1, sigma1, A2, mu2, sigma2]
+            double[] lowerBounds = { 0.1,  xMin,  0.1,  0.1,  xMin,  0.1 }; // Amplitudes and Sigmas > 0.1, Mus within data range
+            double[] upperBounds = { 50.0, xMax, 30.0, 50.0, xMax, 30.0 }; // Max Amplitudes, Sigmas up to half data range
+
             // --- Our NelderMeadDouble Implementation ---
-            Console.WriteLine("\n--- Running Our NelderMeadDouble ---");
+            Console.WriteLine("\n--- Running Our NelderMeadDouble (with Bounds) ---");
             ObjectiveFunctionDouble ourObjectiveFunc = (pars) => 
                 DoubleGaussModel.SumSquaredResiduals(pars, xData, yData);
             
@@ -55,6 +59,8 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             ReadOnlySpan<double> bestParametersOur = NelderMeadDouble.Minimize(
                 ourObjectiveFunc, 
                 initialParameters, 
+                lowerBounds, // Pass lower bounds
+                upperBounds, // Pass upper bounds
                 step: 0.5, 
                 maxIterations: 20000, 
                 tolerance: 1e-8
@@ -73,7 +79,10 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             var solver = new MathNetNumericsOptimization.NelderMeadSimplex(convergenceTolerance: 1e-8, maximumIterations: 20000);
             
             var watchMathNet = System.Diagnostics.Stopwatch.StartNew();
-            // Wrap the Func with ObjectiveFunction.Value for MathNet
+            // MathNet's basic NelderMeadSimplex does not directly take bounds array like ours.
+            // To compare fairly with bounds, one would typically wrap the objective function 
+            // with a penalty for MathNet, or use a MathNet solver that supports bounds.
+            // For this run, MathNet will be unconstrained as before, to highlight the effect of bounds on our impl.
             var mathNetObjective = MathNetNumericsOptimization.ObjectiveFunction.Value(mathNetObjectiveFunc);
             var resultMathNet = solver.FindMinimum(mathNetObjective, initialGuessMathNet);
             watchMathNet.Stop();

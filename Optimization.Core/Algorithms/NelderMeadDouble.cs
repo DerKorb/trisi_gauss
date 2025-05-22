@@ -14,10 +14,29 @@ namespace Optimization.Core.Algorithms
         private const double Gamma = 2.0; // Expansion coefficient
         private const double Rho = 0.5;   // Contraction coefficient
         private const double Sigma = 0.5;   // Shrink coefficient
+        private const double HugeValue = double.PositiveInfinity; // Value for out-of-bounds points
+
+        // Private helper to evaluate with bounds
+        private static double EvaluateWithBoundsPenalty(
+            ReadOnlySpan<double> pars,
+            int dimensions, 
+            ReadOnlySpan<double> lowerBounds, 
+            ReadOnlySpan<double> upperBounds, 
+            ObjectiveFunctionDouble objectiveFunction)
+        {
+            for (int i = 0; i < dimensions; i++)
+            {
+                if (!lowerBounds.IsEmpty && pars[i] < lowerBounds[i]) return HugeValue;
+                if (!upperBounds.IsEmpty && pars[i] > upperBounds[i]) return HugeValue;
+            }
+            return objectiveFunction(pars);
+        }
 
         public static ReadOnlySpan<double> Minimize(
             ObjectiveFunctionDouble objectiveFunction,
             ReadOnlySpan<double> initialParameters,
+            ReadOnlySpan<double> lowerBounds, // Added lower bounds
+            ReadOnlySpan<double> upperBounds, // Added upper bounds
             double step,
             int maxIterations,
             double tolerance)
@@ -26,17 +45,29 @@ namespace Optimization.Core.Algorithms
                 throw new ArgumentNullException(nameof(objectiveFunction));
             if (initialParameters.IsEmpty)
                 throw new ArgumentException("Initial parameters cannot be empty.", nameof(initialParameters));
-
+            
             int dimensions = initialParameters.Length;
-            int numVertices = dimensions + 1;
+            if (!lowerBounds.IsEmpty && lowerBounds.Length != dimensions) throw new ArgumentException("Lower bounds length must match dimensions.", nameof(lowerBounds));
+            if (!upperBounds.IsEmpty && upperBounds.Length != dimensions) throw new ArgumentException("Upper bounds length must match dimensions.", nameof(upperBounds));
 
-            // Simplex: (N+1) vertices, each with N dimensions, stored in a flat array.
-            // Vertex j (0 to N) starts at index j * dimensions.
+            // Check if initial parameters are within bounds
+            for (int i = 0; i < dimensions; i++)
+            {
+                if (!lowerBounds.IsEmpty && initialParameters[i] < lowerBounds[i]) throw new ArgumentOutOfRangeException(nameof(initialParameters), "Initial parameters violate lower bounds.");
+                if (!upperBounds.IsEmpty && initialParameters[i] > upperBounds[i]) throw new ArgumentOutOfRangeException(nameof(initialParameters), "Initial parameters violate upper bounds.");
+            }
+
+            int numVertices = dimensions + 1;
             double[] simplex = new double[numVertices * dimensions];
             double[] fValues = new double[numVertices]; // Function value at each vertex
             int[] order = new int[numVertices];     // To store sorted indices of simplex vertices
 
-            InitializeSimplex(objectiveFunction, initialParameters, step, simplex, fValues, dimensions);
+            InitializeSimplex(objectiveFunction, initialParameters, step, simplex, fValues, dimensions, lowerBounds, upperBounds);
+            // Recalculate fValues for initial simplex using bounds penalty for consistency
+            for(int i=0; i < numVertices; ++i)
+            {
+                fValues[i] = EvaluateWithBoundsPenalty(simplex.AsSpan().Slice(i * dimensions, dimensions), dimensions, lowerBounds, upperBounds, objectiveFunction);
+            }
 
             // Pre-allocate spans for temporary points outside the loop to potentially reduce stack pressure/overhead
             Span<double> centroid = stackalloc double[dimensions];
@@ -71,7 +102,7 @@ namespace Optimization.Core.Algorithms
                 {
                     reflectedPoint[j] = centroid[j] + Alpha * (centroid[j] - simplex[worstPointSimplexStartIndex + j]);
                 }
-                double fReflected = objectiveFunction(reflectedPoint);
+                double fReflected = EvaluateWithBoundsPenalty(reflectedPoint, dimensions, lowerBounds, upperBounds, objectiveFunction);
 
                 if (fReflected < fValues[iBest]) 
                 {
@@ -80,7 +111,7 @@ namespace Optimization.Core.Algorithms
                     {
                         expandedPoint[j] = centroid[j] + Gamma * (reflectedPoint[j] - centroid[j]);
                     }
-                    double fExpanded = objectiveFunction(expandedPoint);
+                    double fExpanded = EvaluateWithBoundsPenalty(expandedPoint, dimensions, lowerBounds, upperBounds, objectiveFunction);
 
                     if (fExpanded < fReflected)
                     {
@@ -118,7 +149,7 @@ namespace Optimization.Core.Algorithms
                             contractedPoint[j] = centroid[j] + Rho * (reflectedPoint[j] - centroid[j]);
                         }
                     }
-                    double fContracted = objectiveFunction(contractedPoint);
+                    double fContracted = EvaluateWithBoundsPenalty(contractedPoint, dimensions, lowerBounds, upperBounds, objectiveFunction);
 
                     if (fContracted < (performInsideContraction ? fValues[iWorst] : fReflected) )
                     {
@@ -128,7 +159,7 @@ namespace Optimization.Core.Algorithms
                     else
                     {
                         // Shrink operation needs the best point's actual index (iBest from FindMinMaxNextMax)
-                        ShrinkSimplexTowardsBest(simplex, iBest, objectiveFunction, fValues, dimensions, Sigma);
+                        ShrinkSimplexTowardsBest(simplex, iBest, objectiveFunction, fValues, dimensions, Sigma, lowerBounds, upperBounds, EvaluateWithBoundsPenalty);
                     }
                 }
             }
@@ -139,27 +170,36 @@ namespace Optimization.Core.Algorithms
         }
 
         private static void InitializeSimplex(
-            ObjectiveFunctionDouble objectiveFunction,
+            ObjectiveFunctionDouble objectiveFunction, // Changed back to raw objective func
             ReadOnlySpan<double> initialParameters,
             double step,
             Span<double> simplex, // Flat array: numVertices * dimensions
-            Span<double> fValues,
-            int dimensions)
+            Span<double> fValues, // fValues will be re-evaluated with bounds penalty in Minimize
+            int dimensions,
+            ReadOnlySpan<double> lowerBounds, // Pass bounds for initial simplex generation
+            ReadOnlySpan<double> upperBounds)
         {
             int numVertices = dimensions + 1;
 
             // First vertex is the initial parameters
             initialParameters.CopyTo(simplex.Slice(0, dimensions));
-            fValues[0] = objectiveFunction(simplex.Slice(0, dimensions));
+            // fValues[0] = objectiveFunction(simplex.Slice(0, dimensions)); // Initial eval without explicit bounds wrapper here, done in Minimize
 
             // Generate N other vertices by perturbing each dimension
+            Span<double> currentVertex = stackalloc double[dimensions];
             for (int i = 0; i < dimensions; i++)
             {
+                initialParameters.CopyTo(currentVertex);
+                currentVertex[i] += step;
+                
+                // Ensure initial simplex points adhere to bounds if possible, or let EvaluateWithBoundsPenalty handle it
+                // A more robust approach might try to place points *within* bounds initially.
+                // For now, rely on EvaluateWithBoundsPenalty to penalize if a step takes it out.
                 int vertexStartIndex = (i + 1) * dimensions;
-                initialParameters.CopyTo(simplex.Slice(vertexStartIndex, dimensions));
-                simplex[vertexStartIndex + i] += step;
-                fValues[i + 1] = objectiveFunction(simplex.Slice(vertexStartIndex, dimensions));
+                currentVertex.CopyTo(simplex.Slice(vertexStartIndex, dimensions));
+                // fValues[i + 1] = objectiveFunction(simplex.Slice(vertexStartIndex, dimensions)); // Initial eval without explicit bounds wrapper here
             }
+            // Note: fValues are populated in Minimize after this call using EvaluateWithBoundsPenalty
         }
 
         private static void OrderSimplex(
@@ -262,24 +302,27 @@ namespace Optimization.Core.Algorithms
         private static void ShrinkSimplexTowardsBest(
             Span<double> simplex,       
             int bestPointActualIndex, 
-            ObjectiveFunctionDouble objectiveFunction,
+            ObjectiveFunctionDouble objectiveFunction, // Changed back to raw objective func
             Span<double> fValues,
             int dimensions,
-            double sigmaCoefficient)
+            double sigmaCoefficient,
+            ReadOnlySpan<double> lowerBounds, 
+            ReadOnlySpan<double> upperBounds,
+            Func<ReadOnlySpan<double>, int, ReadOnlySpan<double>, ReadOnlySpan<double>, ObjectiveFunctionDouble, double> evaluateWithBoundsLocalFunc)
         {
             int bestPointStartIndexInSimplex = bestPointActualIndex * dimensions;
+            ReadOnlySpan<double> bestPoint = simplex.Slice(bestPointStartIndexInSimplex, dimensions);
+            Span<double> tempShrunkPoint = stackalloc double[dimensions]; 
 
             for (int i = 0; i < fValues.Length; i++) 
             {
-                if (i == bestPointActualIndex) continue; // Don't shrink the best point
-
+                if (i == bestPointActualIndex) continue; 
                 int vertexToShrinkStartIndex = i * dimensions;
                 for (int j = 0; j < dimensions; j++)
                 {
-                    simplex[vertexToShrinkStartIndex + j] = simplex[bestPointStartIndexInSimplex + j] +
-                                                          sigmaCoefficient * (simplex[vertexToShrinkStartIndex + j] - simplex[bestPointStartIndexInSimplex + j]);
+                    tempShrunkPoint[j] = bestPoint[j] + sigmaCoefficient * (simplex[vertexToShrinkStartIndex + j] - bestPoint[j]);
                 }
-                fValues[i] = objectiveFunction(simplex.Slice(vertexToShrinkStartIndex, dimensions));
+                fValues[i] = evaluateWithBoundsLocalFunc(tempShrunkPoint, dimensions, lowerBounds, upperBounds, objectiveFunction);
             }
         }
     }

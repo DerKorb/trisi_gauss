@@ -73,6 +73,8 @@ namespace Optimization.Benchmarks
             return NelderMeadDouble.Minimize(
                 _ourObjectiveFunctionDouble,
                 _initialParameters,
+                ReadOnlySpan<double>.Empty,
+                ReadOnlySpan<double>.Empty,
                 step: 0.5,
                 maxIterations: 10000, 
                 tolerance: 1e-7

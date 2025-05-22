@@ -1,9 +1,13 @@
 using System;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace Optimization.Core.Models
 {
-    public static class DoubleGaussModel
+    public static unsafe class DoubleGaussModel
     {
         /// <summary>
         /// Calculates the value of a double Gaussian function at a given point x.
@@ -62,7 +66,7 @@ namespace Optimization.Core.Models
         /// <param name="xData">The observed x-coordinates.</param>
         /// <param name="yData">The observed y-coordinates.</param>
         /// <returns>The sum of squared residuals. Returns double.MaxValue if sigma1 or sigma2 is non-positive.</returns>
-        public static double SumSquaredResiduals(Span<double> parameters, Span<double> xData, Span<double> yData)
+        public static double SumSquaredResiduals(Span<double> parameters, ReadOnlySpan<double> xData, ReadOnlySpan<double> yData)
         {
             if (parameters.Length != 6)
             {
@@ -83,52 +87,55 @@ namespace Optimization.Core.Models
             }
 
             double sumSqRes = 0.0;
+            int i = 0;
+            int n = xData.Length;
 
-            // SIMD optimization for SumSquaredResiduals
-            if (Vector.IsHardwareAccelerated && xData.Length >= Vector<double>.Count)
+            if (Avx.IsSupported && n >= Vector256<double>.Count) // Check for AVX support
             {
-                int vectorSize = Vector<double>.Count;
-                int i = 0;
-                // Process chunks of vectorSize
-                for (i = 0; i <= xData.Length - vectorSize; i += vectorSize)
-                {
-                    // Prepare vectors for xData and yData
-                    Span<double> xSlice = xData.Slice(i, vectorSize);
-                    Span<double> ySlice = yData.Slice(i, vectorSize);
-                    Vector<double> xVec = new Vector<double>(xSlice);
-                    Vector<double> yVec = new Vector<double>(ySlice);
+                int vectorSize = Vector256<double>.Count;
+                Vector256<double> accSquaredResiduals = Vector256<double>.Zero;
+                
+                // Temporary array on stack for modelY values for one vector chunk
+                Span<double> modelY_chunk_span = stackalloc double[vectorSize]; 
 
-                    // Calculate modelY for each element in xVec (scalar calls, then construct vector)
-                    // This is the part not fully vectorized due to Math.Exp in Calculate
-                    double[] modelY_chunk_array = new double[vectorSize];
-                    for(int j=0; j < vectorSize; ++j)
+                fixed (double* pxData = &MemoryMarshal.GetReference(xData))
+                fixed (double* pyData = &MemoryMarshal.GetReference(yData))
+                {
+                    for (i = 0; i <= n - vectorSize; i += vectorSize)
                     {
-                        modelY_chunk_array[j] = Calculate(xSlice[j], parameters); 
-                    }
-                    Vector<double> modelYVec = new Vector<double>(modelY_chunk_array);
-                    
-                    Vector<double> residualVec = yVec - modelYVec;
-                    Vector<double> squaredResidualVec = residualVec * residualVec;
-                    sumSqRes += Vector.Dot(squaredResidualVec, Vector<double>.One);
-                }
+                        Vector256<double> xVec = Avx.LoadVector256(pxData + i);
+                        Vector256<double> yVec = Avx.LoadVector256(pyData + i);
+                        
+                        // Scalar Calculate calls, then load into vector
+                        // This is the bottleneck for full vectorization of this function.
+                        // We are creating a Span from the xVec for Calculate, which is not ideal.
+                        // A better way would be to extract scalars, but let's test this first.
+                        // For a direct AVX approach, we'd need Calculate to be AVX-aware.
+                        for(int j=0; j < vectorSize; ++j)
+                        {
+                             // Get scalar from xVec - this is inefficient, direct pointer access is better
+                            modelY_chunk_span[j] = Calculate(*(pxData + i + j), parameters);
+                        }
+                        Vector256<double> modelYVec = Avx.LoadVector256((double*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(modelY_chunk_span)));
 
-                // Process remaining elements scalar way
-                for (; i < xData.Length; i++)
+                        Vector256<double> residualVec = Avx.Subtract(yVec, modelYVec);
+                        // FMA could be used if we had a multiply-add pattern, here it's just multiply
+                        accSquaredResiduals = Avx.Add(accSquaredResiduals, Avx.Multiply(residualVec, residualVec));
+                    }
+                }
+                // Horizontal sum of the accumulator
+                for(int k=0; k<vectorSize; ++k)
                 {
-                    double modelY = Calculate(xData[i], parameters);
-                    double residual = yData[i] - modelY;
-                    sumSqRes += residual * residual;
+                    sumSqRes += accSquaredResiduals.GetElement(k);
                 }
             }
-            else
+            
+            // Process remaining elements scalar way
+            for (; i < n; i++)
             {
-                // Standard loop-based calculation (fallback if SIMD not accelerated or too few elements)
-                for (int i = 0; i < xData.Length; i++)
-                {
-                    double modelY = Calculate(xData[i], parameters);
-                    double residual = yData[i] - modelY;
-                    sumSqRes += residual * residual;
-                }
+                double modelY = Calculate(xData[i], parameters); // xData[i] is fine here
+                double residual = yData[i] - modelY;             // yData[i] is fine here
+                sumSqRes += residual * residual;
             }
 
             return sumSqRes;

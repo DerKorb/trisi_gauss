@@ -1,0 +1,12 @@
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/Optimization.Core.GeneratedMSBuildEditorConfig.editorconfig
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/Optimization.Core.AssemblyInfoInputs.cache
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/Optimization.Core.AssemblyInfo.cs
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/Optimization.Core.csproj.CoreCompileInputs.cache
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/Optimization.Core.sourcelink.json
+/home/ksollner/projects/tristan/Optimization.Core/bin/Release/net9.0/Optimization.Core.deps.json
+/home/ksollner/projects/tristan/Optimization.Core/bin/Release/net9.0/Optimization.Core.dll
+/home/ksollner/projects/tristan/Optimization.Core/bin/Release/net9.0/Optimization.Core.pdb
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/Optimization.Core.dll
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/refint/Optimization.Core.dll
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/Optimization.Core.pdb
+/home/ksollner/projects/tristan/Optimization.Core/obj/Release/net9.0/ref/Optimization.Core.dll

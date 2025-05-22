@@ -79,10 +79,10 @@ namespace Optimization.Benchmarks
             // var summary = BenchmarkRunner.Run<NelderMeadBenchmark>();
             
             // To run the Double Gauss Fit example (not a benchmark) for console viewing:
-            DoubleGaussFitExample.RunExample(csvOutputOnly: false); 
+            // DoubleGaussFitExample.RunExample(csvOutputOnly: false); 
 
             // To generate ONLY CSV data for piping to plot_data.csv:
-            // DoubleGaussFitExample.RunExample(csvOutputOnly: true); 
+            DoubleGaussFitExample.RunExample(csvOutputOnly: true); 
 
             // To run the Double Gauss Fit benchmark:
             // var summary = BenchmarkRunner.Run<DoubleGaussFitBenchmark>();

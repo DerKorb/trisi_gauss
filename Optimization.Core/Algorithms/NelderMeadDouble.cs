@@ -4,9 +4,17 @@ using System.Runtime.CompilerServices; // For MethodImplOptions
 
 namespace Optimization.Core.Algorithms
 {
-    // Delegate for the objective function, now specifically for double
+    /// <summary>
+    /// Delegate for the objective function to be minimized, specific to double precision parameters.
+    /// </summary>
+    /// <param name="parameters">A read-only span of doubles representing the current parameters being evaluated.</param>
+    /// <returns>The scalar value of the objective function for the given parameters.</returns>
     public delegate double ObjectiveFunctionDouble(ReadOnlySpan<double> parameters);
 
+    /// <summary>
+    /// Provides a Nelder-Mead simplex optimization algorithm specifically for double precision floating-point numbers.
+    /// This implementation includes support for bound constraints and is optimized for performance and memory efficiency.
+    /// </summary>
     public static class NelderMeadDouble
     {
         // Nelder-Mead algorithm parameters (common default values)
@@ -32,6 +40,24 @@ namespace Optimization.Core.Algorithms
             return objectiveFunction(pars);
         }
 
+        /// <summary>
+        /// Minimizes the specified objective function using the Nelder-Mead algorithm.
+        /// </summary>
+        /// <param name="objectiveFunction">The objective function to minimize.</param>
+        /// <param name="initialParameters">The initial guess for the parameters.</param>
+        /// <param name="lowerBounds">Optional lower bounds for each parameter. Pass ReadOnlySpan&lt;double&gt;.Empty or null if no lower bounds.</param>
+        /// <param name="upperBounds">Optional upper bounds for each parameter. Pass ReadOnlySpan&lt;double&gt;.Empty or null if no upper bounds.</param>
+        /// <param name="step">The initial step size used to construct the initial simplex. 
+        /// A good starting point is often a fraction of the expected parameter scale or 0.5-1.0 for normalized parameters.</param>
+        /// <param name="maxIterations">The maximum number of iterations to perform.</param>
+        /// <param name="tolerance">The tolerance for convergence. The algorithm stops if the absolute difference 
+        /// between the function values of the best and worst vertices in the simplex is less than this tolerance.</param>
+        /// <param name="verbose">If true, print detailed intermediate steps to the console.</param>
+        /// <returns>A ReadOnlySpan&lt;double&gt; containing the parameters that minimize the objective function. 
+        /// Note: This returns a copy of the best parameters found.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="objectiveFunction"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="initialParameters"/> is empty, or if bounds have incorrect length.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="initialParameters"/> violate the provided bounds.</exception>
         public static ReadOnlySpan<double> Minimize(
             ObjectiveFunctionDouble objectiveFunction,
             ReadOnlySpan<double> initialParameters,
@@ -39,7 +65,8 @@ namespace Optimization.Core.Algorithms
             ReadOnlySpan<double> upperBounds, // Added upper bounds
             double step,
             int maxIterations,
-            double tolerance)
+            double tolerance,
+            bool verbose = false)
         {
             if (objectiveFunction == null)
                 throw new ArgumentNullException(nameof(objectiveFunction));

@@ -93,9 +93,11 @@ namespace Optimization.Benchmarks
             return NLoptWrapper.OptimizeNelderMead(
                 _ourObjectiveFunctionDouble, // Our C# objective function
                 initialParamsCopy,           // Initial guess
-                _lowerBounds,                // Lower bounds
-                _upperBounds,                // Upper bounds
+                _lowerBounds,                // Lower bounds for NLopt
+                _upperBounds,                // Upper bounds for NLopt
+                null,                        // Pass null for initialStepArray, let NLopt use default
                 ftol_rel: 1e-7,
+                xtol_rel: 1e-7, 
                 maxeval: 10000
             );
         }

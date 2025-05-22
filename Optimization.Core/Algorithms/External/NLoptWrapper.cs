@@ -66,6 +66,12 @@ namespace Optimization.Core.Algorithms.External
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         private static extern void nlopt_set_local_optimizer(IntPtr opt, IntPtr local_opt); // For some global algos
 
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern nlopt_result nlopt_set_initial_step(IntPtr opt, double[] dx); // Added for initial step
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern nlopt_result nlopt_set_xtol_rel(IntPtr opt, double tol); // Added for xtol_rel
+
         // --- Helper to convert nlopt_result to string ---
         public static string ResultToString(nlopt_result result)
         {
@@ -103,7 +109,9 @@ namespace Optimization.Core.Algorithms.External
             double[] initialParameters,
             double[] lowerBounds,
             double[] upperBounds,
+            double[] initialStepArray, // Changed from single double to array
             double ftol_rel = 1e-8,
+            double xtol_rel = 1e-8, // Added xtol_rel
             int maxeval = 20000)
         {
             uint n = (uint)initialParameters.Length;
@@ -129,7 +137,18 @@ namespace Optimization.Core.Algorithms.External
                 if (lowerBounds != null && lowerBounds.Length == n) nlopt_set_lower_bounds(opt, lowerBounds);
                 if (upperBounds != null && upperBounds.Length == n) nlopt_set_upper_bounds(opt, upperBounds);
                 
+                if (initialStepArray != null && initialStepArray.Length == n)
+                {
+                    nlopt_set_initial_step(opt, initialStepArray);
+                }
+                else if (initialStepArray != null) // if provided but wrong length
+                {
+                     throw new ArgumentException("initialStepArray length must match dimensions.", nameof(initialStepArray));
+                }
+                // If initialStepArray is null, NLopt uses its default.
+
                 nlopt_set_ftol_rel(opt, ftol_rel);
+                nlopt_set_xtol_rel(opt, xtol_rel); // Set xtol_rel
                 nlopt_set_maxeval(opt, maxeval);
 
                 double[] x_opt = (double[])initialParameters.Clone(); // NLopt modifies this array

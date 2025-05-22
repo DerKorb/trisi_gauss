@@ -44,79 +44,98 @@ namespace Optimization.Core.Algorithms
             Span<double> expandedPoint = stackalloc double[dimensions];
             Span<double> contractedPoint = stackalloc double[dimensions];
 
+            // Initial sort to establish order for the first iteration and identify initial best/worst
+            OrderSimplex(fValues, order); 
+
+            int iBest = 0, iWorst = 0, iNextWorst = 0; // Will be updated by FindMinMaxNextMax
+
             for (int iteration = 0; iteration < maxIterations; iteration++)
             {
-                OrderSimplex(fValues, order); // Sorts based on fValues, populates order
+                // Find indices of best, worst, and second worst points for current iteration
+                FindMinMaxNextMax(fValues, out iBest, out iWorst, out iNextWorst);
 
-                // Check for convergence (tolerance on function values)
-                double fBest = fValues[order[0]];
-                double fWorst = fValues[order[dimensions]]; // order[dimensions] is the worst index after sorting
-                if (Math.Abs(fWorst - fBest) < tolerance)
+                double fBestVal = fValues[iBest];
+                double fWorstVal = fValues[iWorst]; 
+                if (Math.Abs(fWorstVal - fBestVal) < tolerance)
                 {
-                    break; // Converged
+                    break; 
                 }
 
-                // Calculate centroid of all points except the worst one
-                // Centroid is calculated based on the N best points.
-                CalculateCentroid(simplex, order, dimensions, numVertices -1, centroid);
+                // Centroid is calculated based on all points except the current iWorst
+                CalculateCentroidExcludingOne(simplex, iWorst, dimensions, numVertices, centroid);
 
-                int worstVertexIndexInSimplexArray = order[dimensions] * dimensions;
-                ReadOnlySpan<double> worstPoint = simplex.AsSpan().Slice(worstVertexIndexInSimplexArray, dimensions);
+                int worstPointSimplexStartIndex = iWorst * dimensions;
 
-                // Reflection
-                TransformPoint(centroid, worstPoint, Alpha, reflectedPoint, dimensions);
+                // Reflection: P_r = P_c + Alpha * (P_c - P_w)
+                for (int j = 0; j < dimensions; ++j)
+                {
+                    reflectedPoint[j] = centroid[j] + Alpha * (centroid[j] - simplex[worstPointSimplexStartIndex + j]);
+                }
                 double fReflected = objectiveFunction(reflectedPoint);
 
-                if (fReflected < fValues[order[0]]) // Reflected point is better than the current best
+                if (fReflected < fValues[iBest]) 
                 {
-                    // Expansion
-                    TransformPoint(reflectedPoint, centroid, Gamma, expandedPoint, dimensions);
+                    // Expansion: P_e = P_c + Gamma * (P_r - P_c)
+                    for (int j = 0; j < dimensions; ++j)
+                    {
+                        expandedPoint[j] = centroid[j] + Gamma * (reflectedPoint[j] - centroid[j]);
+                    }
                     double fExpanded = objectiveFunction(expandedPoint);
 
                     if (fExpanded < fReflected)
                     {
-                        expandedPoint.CopyTo(simplex.AsSpan().Slice(worstVertexIndexInSimplexArray, dimensions));
-                        fValues[order[dimensions]] = fExpanded;
+                        expandedPoint.CopyTo(simplex.AsSpan().Slice(worstPointSimplexStartIndex, dimensions));
+                        fValues[iWorst] = fExpanded;
                     }
                     else
                     {
-                        reflectedPoint.CopyTo(simplex.AsSpan().Slice(worstVertexIndexInSimplexArray, dimensions));
-                        fValues[order[dimensions]] = fReflected;
+                        reflectedPoint.CopyTo(simplex.AsSpan().Slice(worstPointSimplexStartIndex, dimensions));
+                        fValues[iWorst] = fReflected;
                     }
                 }
-                else if (fReflected < fValues[order[dimensions - 1]]) // Reflected point is not better than best, but better than second worst
+                else if (fReflected < fValues[iNextWorst]) // If reflected point is better than second worst
                 {
-                    reflectedPoint.CopyTo(simplex.AsSpan().Slice(worstVertexIndexInSimplexArray, dimensions));
-                    fValues[order[dimensions]] = fReflected;
+                    reflectedPoint.CopyTo(simplex.AsSpan().Slice(worstPointSimplexStartIndex, dimensions));
+                    fValues[iWorst] = fReflected;
                 }
-                else // Reflected point is not better than second worst
+                else 
                 {
-                    // Contraction
-                    if (fReflected < fValues[order[dimensions]]) // P_r is better than P_worst (f_r < f_worst)
+                    bool performInsideContraction = fReflected >= fValues[iWorst];
+                    
+                    if (performInsideContraction)
                     {
-                        TransformPoint(reflectedPoint, centroid, Rho, contractedPoint, dimensions);
+                        // Inside Contraction: P_ic = P_c + Rho * (P_w - P_c)
+                        for (int j = 0; j < dimensions; ++j)
+                        {
+                            contractedPoint[j] = centroid[j] + Rho * (simplex[worstPointSimplexStartIndex + j] - centroid[j]);
+                        }
                     }
-                    else // P_r is not better than P_worst (f_r >= f_worst)
+                    else
                     {
-                        TransformPoint(worstPoint, centroid, Rho, contractedPoint, dimensions);
+                        // Outside Contraction: P_oc = P_c + Rho * (P_r - P_c)
+                         for (int j = 0; j < dimensions; ++j)
+                        {
+                            contractedPoint[j] = centroid[j] + Rho * (reflectedPoint[j] - centroid[j]);
+                        }
                     }
                     double fContracted = objectiveFunction(contractedPoint);
 
-                    if (fContracted < fValues[order[dimensions]]) // Contracted point is better than worst
+                    if (fContracted < (performInsideContraction ? fValues[iWorst] : fReflected) )
                     {
-                        contractedPoint.CopyTo(simplex.AsSpan().Slice(worstVertexIndexInSimplexArray, dimensions));
-                        fValues[order[dimensions]] = fContracted;
+                        contractedPoint.CopyTo(simplex.AsSpan().Slice(worstPointSimplexStartIndex, dimensions));
+                        fValues[iWorst] = fContracted;
                     }
                     else
                     {
-                        // Shrink
-                        Shrink(simplex, order, objectiveFunction, fValues, dimensions, Sigma);
+                        // Shrink operation needs the best point's actual index (iBest from FindMinMaxNextMax)
+                        ShrinkSimplexTowardsBest(simplex, iBest, objectiveFunction, fValues, dimensions, Sigma);
                     }
                 }
             }
 
-            OrderSimplex(fValues, order);
-            return simplex.AsSpan().Slice(order[0] * dimensions, dimensions).ToArray(); // Return a copy of the best parameters
+            // Final sort to ensure the absolute best is returned (in case FindMinMaxNextMax logic isn't perfect or for consistency)
+            OrderSimplex(fValues, order); 
+            return simplex.AsSpan().Slice(order[0] * dimensions, dimensions).ToArray(); 
         }
 
         private static void InitializeSimplex(
@@ -159,73 +178,108 @@ namespace Optimization.Core.Algorithms
             }
         }
 
-        // Calculates centroid of the N_best_points (all but the worst one implicitly via `order`)
-        private static void CalculateCentroid(
-            ReadOnlySpan<double> simplex, // Flat array
-            ReadOnlySpan<int> order,      // order[numBestPoints] is the worst point to exclude
+        // New method to find best, worst, and second worst indices
+        private static void FindMinMaxNextMax(ReadOnlySpan<double> fValues, out int iMin, out int iMax, out int iNextMax)
+        {
+            iMin = 0;
+            iMax = 0;
+            iNextMax = 0; // Placeholder, will be properly assigned
+
+            double fMinVal = fValues[0];
+            double fMaxVal = fValues[0];
+            
+            if (fValues.Length == 0) return; // Should not happen with N+1 vertices
+            if (fValues.Length == 1) { iNextMax = 0; return; }
+
+            // Find min and max
+            for (int i = 1; i < fValues.Length; i++)
+            {
+                if (fValues[i] < fMinVal)
+                {
+                    fMinVal = fValues[i];
+                    iMin = i;
+                }
+                if (fValues[i] > fMaxVal)
+                {
+                    fMaxVal = fValues[i];
+                    iMax = i;
+                }
+            }
+
+            // Find second max (iNextMax)
+            if (iMax == 0) // if max is the first element
+            {
+                iNextMax = 1;
+                double fNextMaxVal = fValues[1];
+                for(int i = 2; i < fValues.Length; ++i)
+                {
+                    if(fValues[i] > fNextMaxVal) { fNextMaxVal = fValues[i]; iNextMax = i;}
+                }
+            }
+            else // max is not the first element, so fValues[0] is a candidate for second max
+            {
+                iNextMax = 0;
+                double fNextMaxVal = fValues[0];
+                 for(int i = 1; i < fValues.Length; ++i)
+                {
+                    if(i == iMax) continue;
+                    if(fValues[i] > fNextMaxVal) { fNextMaxVal = fValues[i]; iNextMax = i;}
+                }
+            }
+        }
+
+        // Modified CalculateCentroid to exclude a specific vertex by its actual index
+        private static void CalculateCentroidExcludingOne(
+            ReadOnlySpan<double> simplex, 
+            int excludedVertexActualIndex, 
             int dimensions,
-            int numBestPoints,          // dimensions (N) for standard Nelder-Mead (N+1 total points, N best)
-            Span<double> centroidOutput) // Output span for the centroid
+            int numTotalVertices,
+            Span<double> centroidOutput)
         {
             centroidOutput.Fill(0.0);
-            for (int i = 0; i < numBestPoints; i++) // Summing the N best points
+            int pointsSummed = 0;
+            for (int i = 0; i < numTotalVertices; i++) 
             {
-                int vertexActualIndex = order[i]; // Get the true index of the i-th best point
-                int vertexStartIndexInSimplex = vertexActualIndex * dimensions;
+                if (i == excludedVertexActualIndex) continue;
+                
+                int vertexStartIndexInSimplex = i * dimensions;
                 for (int j = 0; j < dimensions; j++)
                 {
                     centroidOutput[j] += simplex[vertexStartIndexInSimplex + j];
                 }
+                pointsSummed++;
             }
-            for (int j = 0; j < dimensions; j++)
+            if (pointsSummed > 0)
             {
-                centroidOutput[j] /= numBestPoints;
+                for (int j = 0; j < dimensions; j++)
+                {
+                    centroidOutput[j] /= pointsSummed;
+                }
             }
         }
         
-        // P_transformed = p_anchor + factor * (p_dynamic - p_anchor)
-        // Example: Reflected = Centroid + Alpha * (ReflectedAnchorPoint (e.g. Centroid or ReflectedPoint) - WorstPoint)
-        // Reflected: P_new = P_centroid + Alpha * (P_centroid - P_worst) -> transform(centroid, worst, Alpha, out)
-        // Expanded:  P_new = P_centroid + Gamma * (P_reflected - P_centroid) -> transform(centroid, reflected, Gamma, out) WRONG: should be reflected + gamma * (reflected - centroid)
-        // Corrected Expanded: P_expanded = P_reflected + Gamma * (P_reflected - P_centroid)
-        // Contracted (outside): P_c = P_centroid + Rho * (P_reflected - P_centroid) -> transform(centroid, reflected, Rho, out)
-        // Contracted (inside):  P_c = P_centroid + Rho * (P_worst - P_centroid) -> transform(centroid, worst, Rho, out)
-        private static void TransformPoint(
-            ReadOnlySpan<double> pAnchor,    // The point from which the transformation originates (e.g., centroid)
-            ReadOnlySpan<double> pDynamic,   // The point that defines the direction vector (e.g., worst point or reflected point)
-            double factor,                 // The coefficient (Alpha, Gamma, Rho)
-            Span<double> resultPoint,      // Output: the transformed point
-            int dimensions)
-        {
-            for (int i = 0; i < dimensions; i++)
-            {
-                resultPoint[i] = pAnchor[i] + factor * (pDynamic[i] - pAnchor[i]);
-            }
-        }
-
-        // Reflect, Expand, Contract methods are now effectively inlined or logic directly in Minimize loop using TransformPoint
-
-        private static void Shrink(
-            Span<double> simplex,       // Flat array
-            ReadOnlySpan<int> order,    // order[0] is the best point
+        // Modified Shrink to operate with the best point's actual index
+        private static void ShrinkSimplexTowardsBest(
+            Span<double> simplex,       
+            int bestPointActualIndex, 
             ObjectiveFunctionDouble objectiveFunction,
             Span<double> fValues,
             int dimensions,
-            double sigmaCoefficient) // Sigma = 0.5
+            double sigmaCoefficient)
         {
-            int bestPointActualIndex = order[0];
             int bestPointStartIndexInSimplex = bestPointActualIndex * dimensions;
 
-            for (int i = 1; i < fValues.Length; i++) // Shrink all points except the best one
+            for (int i = 0; i < fValues.Length; i++) 
             {
-                int vertexToShrinkActualIndex = order[i];
-                int vertexToShrinkStartIndex = vertexToShrinkActualIndex * dimensions;
+                if (i == bestPointActualIndex) continue; // Don't shrink the best point
+
+                int vertexToShrinkStartIndex = i * dimensions;
                 for (int j = 0; j < dimensions; j++)
                 {
                     simplex[vertexToShrinkStartIndex + j] = simplex[bestPointStartIndexInSimplex + j] +
                                                           sigmaCoefficient * (simplex[vertexToShrinkStartIndex + j] - simplex[bestPointStartIndexInSimplex + j]);
                 }
-                fValues[vertexToShrinkActualIndex] = objectiveFunction(simplex.Slice(vertexToShrinkStartIndex, dimensions));
+                fValues[i] = objectiveFunction(simplex.Slice(vertexToShrinkStartIndex, dimensions));
             }
         }
     }

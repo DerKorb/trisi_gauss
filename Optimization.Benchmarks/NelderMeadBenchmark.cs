@@ -75,8 +75,9 @@ namespace Optimization.Benchmarks
     {
         public static void Main(string[] args)
         {
-            var summary = BenchmarkRunner.Run<NelderMeadBenchmark>();
-            Console.WriteLine(summary);
+            // var summary = BenchmarkRunner.Run<NelderMeadBenchmark>();
+            // Console.WriteLine(summary);
+            DoubleGaussFitExample.RunExample(); // Run the example instead
         }
     }
 } 

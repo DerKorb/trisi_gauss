@@ -24,7 +24,7 @@ namespace Optimization.Core.Models
         /// sigma2: Standard deviation of the second Gaussian.
         /// </param>
         /// <returns>The value of the double Gaussian function at x.</returns>
-        public static double Calculate(double x, Span<double> parameters)
+        public static double Calculate(double x, ReadOnlySpan<double> parameters)
         {
             if (parameters.Length != 6)
             {
@@ -66,7 +66,7 @@ namespace Optimization.Core.Models
         /// <param name="xData">The observed x-coordinates.</param>
         /// <param name="yData">The observed y-coordinates.</param>
         /// <returns>The sum of squared residuals. Returns double.MaxValue if sigma1 or sigma2 is non-positive.</returns>
-        public static double SumSquaredResiduals(Span<double> parameters, ReadOnlySpan<double> xData, ReadOnlySpan<double> yData)
+        public static double SumSquaredResiduals(ReadOnlySpan<double> parameters, ReadOnlySpan<double> xData, ReadOnlySpan<double> yData)
         {
             if (parameters.Length != 6)
             {

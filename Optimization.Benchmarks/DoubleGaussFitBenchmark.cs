@@ -16,7 +16,7 @@ namespace Optimization.Benchmarks
         private double[] _yData;
         private double[] _initialParameters;
 
-        private ObjectiveFunction<double> _ourObjectiveFunction;
+        private ObjectiveFunctionDouble _ourObjectiveFunctionDouble;
         private Func<Vector<double>, double> _mathNetObjectiveFunction;
 
         // True parameters for data generation
@@ -58,8 +58,8 @@ namespace Optimization.Benchmarks
                 4.0   // sigma2 guess
             };
 
-            // Objective function for our optimizer
-            _ourObjectiveFunction = (pars) => 
+            // Objective function for our optimizer (specialized version)
+            _ourObjectiveFunctionDouble = (pars) => 
                 DoubleGaussModel.SumSquaredResiduals(pars, _xData, _yData);
 
             // Objective function for MathNet.Numerics optimizer
@@ -68,13 +68,13 @@ namespace Optimization.Benchmarks
         }
 
         [Benchmark(Baseline = true)]
-        public Span<double> OurNelderMead_DoubleGaussFit()
+        public ReadOnlySpan<double> OurNelderMead_DoubleGaussFit_Specialized()
         {
-            return NelderMead<double>.Minimize(
-                _ourObjectiveFunction,
+            return NelderMeadDouble.Minimize(
+                _ourObjectiveFunctionDouble,
                 _initialParameters,
                 step: 0.5,
-                maxIterations: 10000, // Reduced iterations for benchmark, ensure it's enough for convergence
+                maxIterations: 10000, 
                 tolerance: 1e-7
             );
         }

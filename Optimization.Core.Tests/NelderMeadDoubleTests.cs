@@ -155,5 +155,28 @@ namespace Optimization.Core.Tests
             double[] initialViolatingUpper = { 3, 0 };
             Assert.Throws<ArgumentOutOfRangeException>(() => NelderMeadDouble.Minimize(rosenbrockFunc, initialViolatingUpper, lower, upper, 0.1, 100, 1e-6));
         }
+
+        [Fact]
+        public void Minimize_Rosenbrock_PerformanceSmokeTest()
+        {
+            double[] initialParameters = { -1.2, 1.0 };
+            long maxAllowedMilliseconds = 200; // Generous time limit for a smoke test
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var result = NelderMeadDouble.Minimize(
+                Rosenbrock, 
+                initialParameters, 
+                ReadOnlySpan<double>.Empty, 
+                ReadOnlySpan<double>.Empty, 
+                step: 0.5, 
+                maxIterations: 10000, // Ensure it does enough work to be meaningful
+                tolerance: 1e-7,
+                verbose: false); // Keep verbose off for smoke test
+            stopwatch.Stop();
+
+            Assert.True(Rosenbrock(result) < 1e-6, "Rosenbrock did not converge to minimum.");
+            Assert.True(stopwatch.ElapsedMilliseconds < maxAllowedMilliseconds, 
+                $"Rosenbrock optimization took too long: {stopwatch.ElapsedMilliseconds} ms (expected < {maxAllowedMilliseconds} ms)");
+        }
     }
 } 

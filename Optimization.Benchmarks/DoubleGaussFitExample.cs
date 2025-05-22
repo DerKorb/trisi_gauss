@@ -83,113 +83,76 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
                 Console.WriteLine($"Our Time: {watchOur.ElapsedMilliseconds} ms");
             }
 
-            // --- NLopt Trials with different initial step strategies ---
+            // --- NLopt Trials with specific initial step strategies ---
             double[] initialParametersNlopt = (double[])initialParameters.Clone();
-            var stepStrategies = new System.Collections.Generic.Dictionary<string, double[]>();
+            NLoptWrapper.NLoptResultData nloptNelderMeadDefaultStepsResult = null;
+            NLoptWrapper.NLoptResultData nloptNelderMeadTinyStepsResult = null;
+            NLoptWrapper.NLoptResultData nloptSbplxDefaultStepsResult = null;
+            NLoptWrapper.NLoptResultData nloptSbplxTinyStepsResult = null;
 
-            // Strategy 1: Small percentage of initial guess (similar to previous failing attempt)
-            double[] stepsPctInitial = new double[initialParametersNlopt.Length];
-            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsPctInitial[i] = Math.Max(0.01, Math.Abs(initialParametersNlopt[i] * 0.05)); // 5% or min 0.01
-            stepStrategies.Add("5%_Initial_Min0.01", stepsPctInitial);
+            // Strategy 1: NLopt Default Steps (null for initialStepArray)
+            if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (NelderMead with Bounds, Default Steps) ---");
+            var watchNloptNmDefault = System.Diagnostics.Stopwatch.StartNew();
+            nloptNelderMeadDefaultStepsResult = NLoptWrapper.OptimizeNelderMead(
+                ourObjectiveFunc, (double[])initialParameters.Clone(), lowerBounds, upperBounds,
+                null, ftol_rel: 1e-7, xtol_rel: 1e-7, ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
+            watchNloptNmDefault.Stop();
+            if (!csvOutputOnly) PrintNLoptResult("NLopt NM DefaultSteps", nloptNelderMeadDefaultStepsResult, watchNloptNmDefault.ElapsedMilliseconds, csvOutputOnly);
 
-            // Strategy 2: Moderate fixed absolute step
-            double[] stepsFixedModerate = new double[initialParametersNlopt.Length];
-            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsFixedModerate[i] = 0.5;
-            stepStrategies.Add("Fixed_0.5", stepsFixedModerate);
+            // Strategy 2: NLopt Tiny Explicit Steps
+            if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (NelderMead with Bounds, Tiny Steps 1e-5) ---");
+            double[] tinySteps = new double[initialParameters.Length];
+            Array.Fill(tinySteps, 1e-5);
+            var watchNloptNmTiny = System.Diagnostics.Stopwatch.StartNew();
+            nloptNelderMeadTinyStepsResult = NLoptWrapper.OptimizeNelderMead(
+                ourObjectiveFunc, (double[])initialParameters.Clone(), lowerBounds, upperBounds,
+                tinySteps, ftol_rel: 1e-7, xtol_rel: 1e-7, ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
+            watchNloptNmTiny.Stop();
+            if (!csvOutputOnly) PrintNLoptResult("NLopt NM TinySteps", nloptNelderMeadTinyStepsResult, watchNloptNmTiny.ElapsedMilliseconds, csvOutputOnly);
+
+            // Strategy 3: NLopt SBPLX Default Steps
+             if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (SBPLX with Bounds, Default Steps) ---");
+            var watchNloptSbplxDefault = System.Diagnostics.Stopwatch.StartNew();
+            nloptSbplxDefaultStepsResult = NLoptWrapper.OptimizeSbplx(
+                ourObjectiveFunc, (double[])initialParameters.Clone(), lowerBounds, upperBounds,
+                null, ftol_rel: 1e-7, xtol_rel: 1e-7, ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
+            watchNloptSbplxDefault.Stop();
+            if (!csvOutputOnly) PrintNLoptResult("NLopt SBPLX DefaultSteps", nloptSbplxDefaultStepsResult, watchNloptSbplxDefault.ElapsedMilliseconds, csvOutputOnly);
+
+            // Strategy 4: NLopt SBPLX Tiny Explicit Steps
+            if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (SBPLX with Bounds, Tiny Steps 1e-5) ---");
+            var watchNloptSbplxTiny = System.Diagnostics.Stopwatch.StartNew();
+            nloptSbplxTinyStepsResult = NLoptWrapper.OptimizeSbplx(
+                ourObjectiveFunc, (double[])initialParameters.Clone(), lowerBounds, upperBounds,
+                tinySteps, ftol_rel: 1e-7, xtol_rel: 1e-7, ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
+            watchNloptSbplxTiny.Stop();
+            if (!csvOutputOnly) PrintNLoptResult("NLopt SBPLX TinySteps", nloptSbplxTinyStepsResult, watchNloptSbplxTiny.ElapsedMilliseconds, csvOutputOnly);
             
-            // Strategy 3: Larger fixed absolute step
-            double[] stepsFixedLarge = new double[initialParametersNlopt.Length];
-            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsFixedLarge[i] = 2.0;
-            stepStrategies.Add("Fixed_2.0", stepsFixedLarge);
-
-            // Strategy 4: Steps as a fraction of bounds range
-            double[] stepsFractionOfRange = new double[initialParametersNlopt.Length];
-            for(int i=0; i < initialParametersNlopt.Length; ++i) stepsFractionOfRange[i] = Math.Max(0.1, (upperBounds[i] - lowerBounds[i]) * 0.1); // 10% of range or min 0.1
-            stepStrategies.Add("10%_BoundsRange_Min0.1", stepsFractionOfRange);
+            // Determine best NLopt result for plotting (simple SSR comparison)
+            NLoptWrapper.NLoptResultData bestNloptResultForPlot = nloptNelderMeadDefaultStepsResult; // Start with one
+            if (nloptNelderMeadTinyStepsResult.OptimalValue < bestNloptResultForPlot.OptimalValue) bestNloptResultForPlot = nloptNelderMeadTinyStepsResult;
+            if (nloptSbplxDefaultStepsResult.OptimalValue < bestNloptResultForPlot.OptimalValue) bestNloptResultForPlot = nloptSbplxDefaultStepsResult;
+            if (nloptSbplxTinyStepsResult.OptimalValue < bestNloptResultForPlot.OptimalValue) bestNloptResultForPlot = nloptSbplxTinyStepsResult;
             
-            // Strategy 5: NLopt default (pass null for initialStepArray)
-            stepStrategies.Add("NLopt_Default_Steps", null);
-
-
-            NLoptWrapper.NLoptResultData resultNLopt = null; // To store the best NLopt result for CSV
-
-            foreach(var strategy in stepStrategies)
-            {
-                if (!csvOutputOnly) Console.WriteLine($"\n--- Running NLopt (NelderMead with Bounds, Steps: {strategy.Key}) ---");
-                double[] currentInitialParamsNlopt = (double[])initialParameters.Clone(); // Reset for each strategy
-
-                var watchNLopt = System.Diagnostics.Stopwatch.StartNew();
-                var currentNLoptResult = NLoptWrapper.OptimizeNelderMead(
-                    ourObjectiveFunc, currentInitialParamsNlopt, lowerBounds, upperBounds,
-                    strategy.Value, // Pass the step array for current strategy
-                    ftol_rel: 1e-7, xtol_rel: 1e-7, 
-                    ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
-                watchNLopt.Stop();
-                
-                if (!csvOutputOnly)
-                {
-                    PrintParameters($"NLopt ({strategy.Key}) Found", currentNLoptResult.OptimalParameters, csvOutputOnly);
-                    Console.WriteLine($"NLopt ({strategy.Key}) SSR: {currentNLoptResult.OptimalValue:E2}");
-                    Console.WriteLine($"NLopt ({strategy.Key}) Result: {currentNLoptResult.ResultMessage} ({currentNLoptResult.ResultCode})");
-                    Console.WriteLine($"NLopt ({strategy.Key}) Time: {watchNLopt.ElapsedMilliseconds} ms");
-                }
-                if (resultNLopt == null || (currentNLoptResult.OptimalParameters != null && currentNLoptResult.OptimalValue < resultNLopt.OptimalValue))
-                {
-                    resultNLopt = currentNLoptResult;
-                }
-            }
-            
-            if (!csvOutputOnly && resultNLopt != null) {
-                 Console.WriteLine("\n--- Best NLopt NelderMead result (used for plot if SBPLX fails) ---");
-                 PrintParameters("Best NLopt NM Plot", resultNLopt.OptimalParameters, csvOutputOnly);
-                 Console.WriteLine($"Best NLopt NM Plot SSR: {resultNLopt.OptimalValue:E2}");
+            if (!csvOutputOnly && bestNloptResultForPlot != null) {
+                 Console.WriteLine("\n--- Best NLopt result overall (used for plot) ---");
+                 PrintParameters("Best NLopt Combined", bestNloptResultForPlot.OptimalParameters, csvOutputOnly);
+                 Console.WriteLine($"Best NLopt Combined SSR: {bestNloptResultForPlot.OptimalValue:E2}");
             }
 
-            // --- Running NLopt (SBPLX with Bounds) ---
-            if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (SBPLX with Bounds) ---");
-            double[] initialParametersSbplx = (double[])initialParameters.Clone();
-            double[] sbplxInitialSteps = new double[initialParametersSbplx.Length];
-            for(int i=0; i < initialParametersSbplx.Length; ++i) sbplxInitialSteps[i] = 1.0; // Using fixed step of 1.0
-
-            var watchSbplx = System.Diagnostics.Stopwatch.StartNew();
-            NLoptWrapper.NLoptResultData resultSbplx = NLoptWrapper.OptimizeSbplx(
-                ourObjectiveFunc, initialParametersSbplx, lowerBounds, upperBounds,
-                sbplxInitialSteps, 
-                ftol_rel: 1e-7, xtol_rel: 1e-7, 
-                ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
-            watchSbplx.Stop();
-            
-            NLoptWrapper.NLoptResultData finalNloptResultForPlot = resultNLopt; // Default to NelderMead best
-            if (!csvOutputOnly) 
-            {
-                PrintParameters("NLopt SBPLX Found", resultSbplx.OptimalParameters, csvOutputOnly);
-                Console.WriteLine($"NLopt SBPLX SSR: {resultSbplx.OptimalValue:E2}");
-                Console.WriteLine($"NLopt SBPLX Result: {resultSbplx.ResultMessage} ({resultSbplx.ResultCode})");
-                Console.WriteLine($"NLopt SBPLX Time: {watchSbplx.ElapsedMilliseconds} ms");
-            }
-            // If SBPLX was successful and better than NelderMead, use it for the plot
-            if (resultSbplx.OptimalParameters != null && resultSbplx.ResultCode > 0 && 
-                (resultNLopt == null || resultSbplx.OptimalValue < resultNLopt.OptimalValue)) 
-            {
-                finalNloptResultForPlot = resultSbplx;
-                if(!csvOutputOnly) Console.WriteLine("(SBPLX result chosen for plot)");
-            }
-            else if (!csvOutputOnly && resultNLopt != null)
-            {
-                Console.WriteLine("(Best NelderMead result chosen for plot)");
-            }
-
-
+            // --- Generate Data for Plotting (CSV or Full) ---
             if (csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
-            else Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
-            if (!csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
+            else {
+                Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
+                Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
+            }
 
             for(int i=0; i < xData.Length; ++i)
             {
                 double currentX = xData[i];
                 double yTrue = DoubleGaussModel.Calculate(currentX, trueParameters);
                 double yFittedOur = DoubleGaussModel.Calculate(currentX, bestParametersOur);
-                double yFittedNloptToPlot = (finalNloptResultForPlot != null && finalNloptResultForPlot.OptimalParameters != null) ? DoubleGaussModel.Calculate(currentX, finalNloptResultForPlot.OptimalParameters) : double.NaN;
+                double yFittedNloptToPlot = (bestNloptResultForPlot != null && bestNloptResultForPlot.OptimalParameters != null) ? DoubleGaussModel.Calculate(currentX, bestNloptResultForPlot.OptimalParameters) : double.NaN;
                 double yNoisy = yData[i];
                 Console.WriteLine($"{currentX:F2},{yTrue:F4},{yFittedOur:F4},{yFittedNloptToPlot:F4},{yNoisy:F4}");
             }
@@ -207,14 +170,22 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             */
         }
 
+        private static void PrintNLoptResult(string strategyLabel, NLoptWrapper.NLoptResultData nloptResult, long timeMs, bool csvOutputOnly)
+        {
+            if (csvOutputOnly) return;
+            PrintParameters($"NLopt ({strategyLabel}) Found", nloptResult.OptimalParameters, csvOutputOnly);
+            Console.WriteLine($"NLopt ({strategyLabel}) SSR: {nloptResult.OptimalValue:E2}");
+            Console.WriteLine($"NLopt ({strategyLabel}) Result: {nloptResult.ResultMessage} ({nloptResult.ResultCode})");
+            Console.WriteLine($"NLopt ({strategyLabel}) Time: {timeMs} ms");
+        }
+
         private static void PrintParameters(string label, ReadOnlySpan<double> parameters, bool csvOutputOnly = false)
         {
-            if (csvOutputOnly && (!label.Contains("Best NLopt Plot") && !label.Contains("NLopt SBPLX Found"))) return; 
-            if (csvOutputOnly && (label.Contains("Best NLopt Plot") || label.Contains("NLopt SBPLX Found"))) {
-                 // Attempt to calculate SSR for comment - CAUTION: xData, yData not available here
-                 // For simplicity, just print parameters for CSV comment
+            if (csvOutputOnly && !(label.Contains("Best NLopt Combined") || label.Contains("True") || label.Contains("Initial"))) return;
+            if (csvOutputOnly && (label.Contains("Best NLopt Combined") || label.Contains("True") || label.Contains("Initial"))) {
                  Console.WriteLine($"# {label}: A1={parameters[0]:F2}, mu1={parameters[1]:F2}, sigma1={parameters[2]:F2}, " +
                                   $"A2={parameters[3]:F2}, mu2={parameters[4]:F2}, sigma2={parameters[5]:F2}");
+                 // For SSR in comment, would need xData, yData. Skip for now.
                  return;
             }
 

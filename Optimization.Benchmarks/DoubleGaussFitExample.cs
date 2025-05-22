@@ -133,7 +133,6 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
                     Console.WriteLine($"NLopt ({strategy.Key}) Result: {currentNLoptResult.ResultMessage} ({currentNLoptResult.ResultCode})");
                     Console.WriteLine($"NLopt ({strategy.Key}) Time: {watchNLopt.ElapsedMilliseconds} ms");
                 }
-                 // Keep the result that gives the best SSR for plotting
                 if (resultNLopt == null || (currentNLoptResult.OptimalParameters != null && currentNLoptResult.OptimalValue < resultNLopt.OptimalValue))
                 {
                     resultNLopt = currentNLoptResult;
@@ -141,10 +140,45 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             }
             
             if (!csvOutputOnly && resultNLopt != null) {
-                 Console.WriteLine("\n--- Best NLopt result (used for plot) ---");
-                 PrintParameters("Best NLopt Plot", resultNLopt.OptimalParameters, csvOutputOnly);
-                 Console.WriteLine($"Best NLopt Plot SSR: {resultNLopt.OptimalValue:E2}");
+                 Console.WriteLine("\n--- Best NLopt NelderMead result (used for plot if SBPLX fails) ---");
+                 PrintParameters("Best NLopt NM Plot", resultNLopt.OptimalParameters, csvOutputOnly);
+                 Console.WriteLine($"Best NLopt NM Plot SSR: {resultNLopt.OptimalValue:E2}");
             }
+
+            // --- Running NLopt (SBPLX with Bounds) ---
+            if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (SBPLX with Bounds) ---");
+            double[] initialParametersSbplx = (double[])initialParameters.Clone();
+            double[] sbplxInitialSteps = new double[initialParametersSbplx.Length];
+            for(int i=0; i < initialParametersSbplx.Length; ++i) sbplxInitialSteps[i] = 1.0; // Using fixed step of 1.0
+
+            var watchSbplx = System.Diagnostics.Stopwatch.StartNew();
+            NLoptWrapper.NLoptResultData resultSbplx = NLoptWrapper.OptimizeSbplx(
+                ourObjectiveFunc, initialParametersSbplx, lowerBounds, upperBounds,
+                sbplxInitialSteps, 
+                ftol_rel: 1e-7, xtol_rel: 1e-7, 
+                ftol_abs: 1e-8, xtol_abs_val: 1e-8, maxeval: 20000);
+            watchSbplx.Stop();
+            
+            NLoptWrapper.NLoptResultData finalNloptResultForPlot = resultNLopt; // Default to NelderMead best
+            if (!csvOutputOnly) 
+            {
+                PrintParameters("NLopt SBPLX Found", resultSbplx.OptimalParameters, csvOutputOnly);
+                Console.WriteLine($"NLopt SBPLX SSR: {resultSbplx.OptimalValue:E2}");
+                Console.WriteLine($"NLopt SBPLX Result: {resultSbplx.ResultMessage} ({resultSbplx.ResultCode})");
+                Console.WriteLine($"NLopt SBPLX Time: {watchSbplx.ElapsedMilliseconds} ms");
+            }
+            // If SBPLX was successful and better than NelderMead, use it for the plot
+            if (resultSbplx.OptimalParameters != null && resultSbplx.ResultCode > 0 && 
+                (resultNLopt == null || resultSbplx.OptimalValue < resultNLopt.OptimalValue)) 
+            {
+                finalNloptResultForPlot = resultSbplx;
+                if(!csvOutputOnly) Console.WriteLine("(SBPLX result chosen for plot)");
+            }
+            else if (!csvOutputOnly && resultNLopt != null)
+            {
+                Console.WriteLine("(Best NelderMead result chosen for plot)");
+            }
+
 
             if (csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
             else Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
@@ -155,9 +189,9 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
                 double currentX = xData[i];
                 double yTrue = DoubleGaussModel.Calculate(currentX, trueParameters);
                 double yFittedOur = DoubleGaussModel.Calculate(currentX, bestParametersOur);
-                double yFittedNLopt = (resultNLopt != null && resultNLopt.OptimalParameters != null) ? DoubleGaussModel.Calculate(currentX, resultNLopt.OptimalParameters) : double.NaN;
+                double yFittedNloptToPlot = (finalNloptResultForPlot != null && finalNloptResultForPlot.OptimalParameters != null) ? DoubleGaussModel.Calculate(currentX, finalNloptResultForPlot.OptimalParameters) : double.NaN;
                 double yNoisy = yData[i];
-                Console.WriteLine($"{currentX:F2},{yTrue:F4},{yFittedOur:F4},{yFittedNLopt:F4},{yNoisy:F4}");
+                Console.WriteLine($"{currentX:F2},{yTrue:F4},{yFittedOur:F4},{yFittedNloptToPlot:F4},{yNoisy:F4}");
             }
 
             // Comment out the old basic console visualization if we're outputting CSV data
@@ -175,10 +209,12 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
 
         private static void PrintParameters(string label, ReadOnlySpan<double> parameters, bool csvOutputOnly = false)
         {
-            if (csvOutputOnly && !label.Contains("Best NLopt Plot")) return; // Only print best NLopt in CSV for brevity, or nothing else
-            if (csvOutputOnly && label.Contains("Best NLopt Plot")) {
+            if (csvOutputOnly && (!label.Contains("Best NLopt Plot") && !label.Contains("NLopt SBPLX Found"))) return; 
+            if (csvOutputOnly && (label.Contains("Best NLopt Plot") || label.Contains("NLopt SBPLX Found"))) {
+                 // Attempt to calculate SSR for comment - CAUTION: xData, yData not available here
+                 // For simplicity, just print parameters for CSV comment
                  Console.WriteLine($"# {label}: A1={parameters[0]:F2}, mu1={parameters[1]:F2}, sigma1={parameters[2]:F2}, " +
-                                  $"A2={parameters[3]:F2}, mu2={parameters[4]:F2}, sigma2={parameters[5]:F2} SSR: {DoubleGaussModel.SumSquaredResiduals(parameters, null, null):E2} -- Placeholder SSR for comment");
+                                  $"A2={parameters[3]:F2}, mu2={parameters[4]:F2}, sigma2={parameters[5]:F2}");
                  return;
             }
 

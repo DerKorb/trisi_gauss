@@ -12,6 +12,7 @@ namespace Optimization.Core.Algorithms.External
         public enum nlopt_algorithm : int
         {
             NLOPT_LN_NELDERMEAD = 11, // From nlopt.h, there are many others
+            NLOPT_LN_SBPLX = 12, // Added SBPLX (Subplex algorithm)
             // Add other algorithms as needed
         }
 
@@ -110,31 +111,74 @@ namespace Optimization.Core.Algorithms.External
         // Store the delegate to prevent garbage collection if it's only referenced by native code
         private static nlopt_func_delegate _cachedObjectiveDelegate;
 
+        // Method for NelderMead (keeping it separate for clarity)
         public static NLoptResultData OptimizeNelderMead(
             ObjectiveFunctionDouble objectiveFunction, 
             double[] initialParameters,
             double[] lowerBounds,
             double[] upperBounds,
             double[] initialStepArray, 
-            double ftol_rel = 1e-7, // Keep the relaxed ftol_rel for robustness test
+            double ftol_rel = 1e-7, 
             double xtol_rel = 1e-7, 
-            double ftol_abs = 1e-8, // Added ftol_abs
-            double xtol_abs_val = 1e-8, // Value for each element of xtol_abs array
+            double ftol_abs = 1e-8, 
+            double xtol_abs_val = 1e-8, 
             int maxeval = 20000)
+        {
+            return RunNloptAlgorithm(nlopt_algorithm.NLOPT_LN_NELDERMEAD, objectiveFunction, initialParameters,
+                                     lowerBounds, upperBounds, initialStepArray, 
+                                     ftol_rel, xtol_rel, ftol_abs, xtol_abs_val, maxeval);
+        }
+
+        // New method for SBPLX
+        public static NLoptResultData OptimizeSbplx(
+            ObjectiveFunctionDouble objectiveFunction, 
+            double[] initialParameters,
+            double[] lowerBounds,
+            double[] upperBounds,
+            double[] initialStepArray, // SBPLX also uses initial step
+            double ftol_rel = 1e-7, 
+            double xtol_rel = 1e-7, 
+            double ftol_abs = 1e-8, 
+            double xtol_abs_val = 1e-8, 
+            int maxeval = 20000)
+        {
+            return RunNloptAlgorithm(nlopt_algorithm.NLOPT_LN_SBPLX, objectiveFunction, initialParameters,
+                                     lowerBounds, upperBounds, initialStepArray, 
+                                     ftol_rel, xtol_rel, ftol_abs, xtol_abs_val, maxeval);
+        }
+
+        // Common private method to run an NLopt algorithm
+        private static NLoptResultData RunNloptAlgorithm(
+            nlopt_algorithm algorithm,
+            ObjectiveFunctionDouble objectiveFunction, 
+            double[] initialParameters,
+            double[] lowerBounds,
+            double[] upperBounds,
+            double[] initialStepArray, 
+            double ftol_rel, 
+            double xtol_rel, 
+            double ftol_abs, 
+            double xtol_abs_val, 
+            int maxeval)
         {
             uint n = (uint)initialParameters.Length;
             IntPtr opt = IntPtr.Zero;
+            // Ensure the delegate is not collected prematurely if this method is called multiple times rapidly
+            // and the static field _cachedObjectiveDelegate gets overwritten before native code finishes with the previous one.
+            // For simplicity in this context, we rely on _cachedObjectiveDelegate being set just before nlopt_set_min_objective.
+            // In a multi-threaded scenario or more complex lifecycle, more robust GCHandle management might be needed per call.
+            nlopt_func_delegate currentObjectiveDelegate = (num_params, x_native_ptr, gradient_native_ptr, func_data_native_ptr) =>
+            {
+                double[] x = new double[num_params];
+                Marshal.Copy(x_native_ptr, x, 0, (int)num_params);
+                return objectiveFunction(x);
+            };
+            _cachedObjectiveDelegate = currentObjectiveDelegate; // Cache it to prevent GC
+
             try
             {
-                opt = nlopt_create(nlopt_algorithm.NLOPT_LN_NELDERMEAD, n);
-                if (opt == IntPtr.Zero) throw new Exception("Failed to create NLopt optimizer.");
-
-                _cachedObjectiveDelegate = (num_params, x_native_ptr, gradient_native_ptr, func_data_native_ptr) =>
-                {
-                    double[] x = new double[num_params];
-                    Marshal.Copy(x_native_ptr, x, 0, (int)num_params);
-                    return objectiveFunction(x);
-                };
+                opt = nlopt_create(algorithm, n);
+                if (opt == IntPtr.Zero) throw new Exception($"Failed to create NLopt optimizer for {algorithm}.");
                 
                 nlopt_set_min_objective(opt, _cachedObjectiveDelegate, IntPtr.Zero);
 
@@ -152,11 +196,11 @@ namespace Optimization.Core.Algorithms.External
 
                 nlopt_set_ftol_rel(opt, ftol_rel);
                 nlopt_set_xtol_rel(opt, xtol_rel);
-                nlopt_set_ftol_abs(opt, ftol_abs); // Set ftol_abs
+                nlopt_set_ftol_abs(opt, ftol_abs);
                 
                 double[] xtol_abs_array = new double[n];
                 for(int i=0; i<n; ++i) xtol_abs_array[i] = xtol_abs_val;
-                nlopt_set_xtol_abs(opt, xtol_abs_array); // Set xtol_abs
+                nlopt_set_xtol_abs(opt, xtol_abs_array);
 
                 nlopt_set_maxeval(opt, maxeval);
 
@@ -177,8 +221,10 @@ namespace Optimization.Core.Algorithms.External
             {
                  return new NLoptResultData
                 {
+                    OptimalParameters = (double[])initialParameters.Clone(), // Return initial if failed
+                    OptimalValue = double.PositiveInfinity,
                     ResultCode = nlopt_result.NLOPT_FAILURE,
-                    ResultMessage = "Exception in NLoptWrapper: " + ex.Message
+                    ResultMessage = $"Exception in NLoptWrapper ({algorithm}): " + ex.Message
                 };
             }
             finally

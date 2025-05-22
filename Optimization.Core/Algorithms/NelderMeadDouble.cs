@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices; // For MemoryMarshal if using Spans with flat array
+using System.Runtime.CompilerServices; // For MethodImplOptions
 
 namespace Optimization.Core.Algorithms
 {
@@ -37,6 +38,12 @@ namespace Optimization.Core.Algorithms
 
             InitializeSimplex(objectiveFunction, initialParameters, step, simplex, fValues, dimensions);
 
+            // Pre-allocate spans for temporary points outside the loop to potentially reduce stack pressure/overhead
+            Span<double> centroid = stackalloc double[dimensions];
+            Span<double> reflectedPoint = stackalloc double[dimensions];
+            Span<double> expandedPoint = stackalloc double[dimensions];
+            Span<double> contractedPoint = stackalloc double[dimensions];
+
             for (int iteration = 0; iteration < maxIterations; iteration++)
             {
                 OrderSimplex(fValues, order); // Sorts based on fValues, populates order
@@ -51,22 +58,19 @@ namespace Optimization.Core.Algorithms
 
                 // Calculate centroid of all points except the worst one
                 // Centroid is calculated based on the N best points.
-                Span<double> centroid = stackalloc double[dimensions];
                 CalculateCentroid(simplex, order, dimensions, numVertices -1, centroid);
 
                 int worstVertexIndexInSimplexArray = order[dimensions] * dimensions;
                 ReadOnlySpan<double> worstPoint = simplex.AsSpan().Slice(worstVertexIndexInSimplexArray, dimensions);
 
                 // Reflection
-                Span<double> reflectedPoint = stackalloc double[dimensions];
                 TransformPoint(centroid, worstPoint, Alpha, reflectedPoint, dimensions);
                 double fReflected = objectiveFunction(reflectedPoint);
 
                 if (fReflected < fValues[order[0]]) // Reflected point is better than the current best
                 {
                     // Expansion
-                    Span<double> expandedPoint = stackalloc double[dimensions];
-                    TransformPoint(reflectedPoint, centroid, Gamma, expandedPoint, dimensions); // p_e = c + gamma * (p_r - c)
+                    TransformPoint(reflectedPoint, centroid, Gamma, expandedPoint, dimensions);
                     double fExpanded = objectiveFunction(expandedPoint);
 
                     if (fExpanded < fReflected)
@@ -87,15 +91,13 @@ namespace Optimization.Core.Algorithms
                 }
                 else // Reflected point is not better than second worst
                 {
-                    Span<double> contractedPoint = stackalloc double[dimensions];
+                    // Contraction
                     if (fReflected < fValues[order[dimensions]]) // P_r is better than P_worst (f_r < f_worst)
                     {
-                        // Outside contraction: c_ = c + rho * (p_r - c)
                         TransformPoint(reflectedPoint, centroid, Rho, contractedPoint, dimensions);
                     }
                     else // P_r is not better than P_worst (f_r >= f_worst)
                     {
-                        // Inside contraction: c_ = c + rho * (p_worst - c)  (or c - rho * (c - p_worst))
                         TransformPoint(worstPoint, centroid, Rho, contractedPoint, dimensions);
                     }
                     double fContracted = objectiveFunction(contractedPoint);

@@ -178,5 +178,61 @@ namespace Optimization.Core.Tests
             Assert.True(stopwatch.ElapsedMilliseconds < maxAllowedMilliseconds, 
                 $"Rosenbrock optimization took too long: {stopwatch.ElapsedMilliseconds} ms (expected < {maxAllowedMilliseconds} ms)");
         }
+
+        [Fact]
+        public void Minimize_Rosenbrock_Unconstrained_PerformanceSmokeTest()
+        {
+            double[] initialParameters = { -1.2, 1.0 };
+            long maxAllowedMilliseconds = 250; // Generous time limit for a smoke test
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var result = NelderMeadDouble.Minimize(
+                Rosenbrock, 
+                initialParameters, 
+                ReadOnlySpan<double>.Empty, // No lower bounds
+                ReadOnlySpan<double>.Empty, // No upper bounds
+                step: 0.5, 
+                maxIterations: 10000, // Ensure it does enough work to be meaningful
+                tolerance: 1e-7,
+                verbose: false); // Keep verbose off for smoke test
+            stopwatch.Stop();
+
+            Assert.True(Rosenbrock(result) < 1e-6, "Rosenbrock did not converge to minimum in smoke test.");
+            Assert.True(stopwatch.ElapsedMilliseconds < maxAllowedMilliseconds, 
+                $"Rosenbrock optimization smoke test took too long: {stopwatch.ElapsedMilliseconds} ms (expected < {maxAllowedMilliseconds} ms)");
+        }
+
+        [Fact]
+        public void Minimize_DoubleGaussianFit_GoodInitial_PerformanceSmokeTest()
+        {
+            double[] trueParameters = { 10.0, 20.0, 3.0, 15.0, 40.0, 5.0 };
+            double[] initialParameters = { 9.0, 19.0, 2.5, 14.0, 39.0, 4.5 }; // Good initial guess
+            double[] lowerBounds = { 0.1, 0, 0.1, 0.1, 0, 0.1 };
+            double[] upperBounds = { 50, 60, 30, 50, 60, 30 };
+            int numDataPoints = 100;
+            double[] xData = new double[numDataPoints];
+            double[] yData = new double[numDataPoints];
+            Random random = new Random(42);
+            double noiseLevel = 0.01; // Low 1% noise for perf test
+            double maxAmp = Math.Max(trueParameters[0], trueParameters[3]);
+            for (int i = 0; i < numDataPoints; i++)
+            {
+                xData[i] = 0 + (60.0 - 0) * i / (numDataPoints - 1);
+                double cleanY = DoubleGaussModel.Calculate(xData[i], trueParameters);
+                yData[i] = cleanY + (random.NextDouble() * 2 - 1) * maxAmp * noiseLevel;
+            }
+            ObjectiveFunctionDouble objective = pars => DoubleGaussModel.SumSquaredResiduals(pars, xData, yData);
+            long maxAllowedMilliseconds = 500; // Generous time limit
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var result = NelderMeadDouble.Minimize(objective, initialParameters, lowerBounds, upperBounds, 
+                                                 0.5, 20000, 1e-7, verbose: false);
+            stopwatch.Stop();
+
+            Assert.True(DoubleGaussModel.SumSquaredResiduals(result, xData, yData) < 20, // Low SSR for low noise, good guess
+                $"DoubleGaussianFit smoke test SSR too high: {DoubleGaussModel.SumSquaredResiduals(result, xData, yData):E3}");
+            Assert.True(stopwatch.ElapsedMilliseconds < maxAllowedMilliseconds, 
+                $"DoubleGaussianFit smoke test took too long: {stopwatch.ElapsedMilliseconds} ms (expected < {maxAllowedMilliseconds} ms)");
+        }
     }
 } 

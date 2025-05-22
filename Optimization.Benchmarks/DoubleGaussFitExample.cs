@@ -84,15 +84,34 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             Console.WriteLine($"MathNet ReasonForExit: {resultMathNet.ReasonForExit}");
             Console.WriteLine($"MathNet Time: {watchMathNet.ElapsedMilliseconds} ms");
 
-            // Optional: Visualize (basic console plot for our fit)
+            // --- Generate Data for Plotting ---
+            Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
+            Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_MathNet,Y_NoisyData");
+            
+            // For smoother function plots, we can use a denser set of X values than just xData
+            // Or, for simplicity, just use the xData points and connect them in the plot.
+            // Let's use xData for direct comparison with noisy points.
+            for(int i=0; i < xData.Length; ++i)
+            {
+                double currentX = xData[i];
+                double yTrue = DoubleGaussModel.Calculate(currentX, trueParameters);
+                double yFittedOur = DoubleGaussModel.Calculate(currentX, bestParametersOur);
+                double yFittedMathNet = DoubleGaussModel.Calculate(currentX, resultMathNet.MinimizingPoint.AsArray());
+                double yNoisy = yData[i];
+                Console.WriteLine($"{currentX:F2},{yTrue:F4},{yFittedOur:F4},{yFittedMathNet:F4},{yNoisy:F4}");
+            }
+
+            // Comment out the old basic console visualization if we're outputting CSV data
+            /*
             Console.WriteLine("\nBasic Console Visualization (Y vs X - True vs OurFitted vs NoisyData):");
             Console.WriteLine("X\tY_True\tY_OurFit\tY_Data(Noisy)");
             for(int i=0; i<numDataPoints; i+= numDataPoints/10) // Print a subset of points
             {
-                double yTrue = DoubleGaussModel.Calculate(xData[i], trueParameters);
-                double yFittedOur = DoubleGaussModel.Calculate(xData[i], bestParametersOur);
-                Console.WriteLine($"{xData[i]:F1}\t{yTrue:F2}\t{yFittedOur:F2}\t{yData[i]:F2}");
+                double yTrueCalc = DoubleGaussModel.Calculate(xData[i], trueParameters);
+                double yFittedOurCalc = DoubleGaussModel.Calculate(xData[i], bestParametersOur);
+                Console.WriteLine($"{xData[i]:F1}\t{yTrueCalc:F2}\t{yFittedOurCalc:F2}\t{yData[i]:F2}");
             }
+            */
         }
 
         private static void PrintParameters(string label, ReadOnlySpan<double> parameters)

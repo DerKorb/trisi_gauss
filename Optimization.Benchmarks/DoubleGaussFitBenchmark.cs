@@ -76,8 +76,8 @@ namespace Optimization.Benchmarks
             return NelderMeadDouble.Minimize(
                 _ourObjectiveFunctionDouble,
                 _initialParameters,
-                ReadOnlySpan<double>.Empty, // Run our specialized version unconstrained for this perf benchmark
-                ReadOnlySpan<double>.Empty, 
+                _lowerBounds, // Use defined lower bounds
+                _upperBounds, // Use defined upper bounds
                 step: 0.5,
                 maxIterations: 10000, 
                 tolerance: 1e-7

@@ -78,8 +78,11 @@ namespace Optimization.Benchmarks
             // To run the original Nelder-Mead vs MathNet on Rosenbrock:
             // var summary = BenchmarkRunner.Run<NelderMeadBenchmark>();
             
-            // To run the Double Gauss Fit example (not a benchmark):
-            DoubleGaussFitExample.RunExample(); // Focus on this for robustness check output
+            // To run the Double Gauss Fit example (not a benchmark) for console viewing:
+            // DoubleGaussFitExample.RunExample(csvOutputOnly: false); 
+
+            // To generate ONLY CSV data for piping to plot_data.csv:
+            DoubleGaussFitExample.RunExample(csvOutputOnly: true); 
 
             // To run the Double Gauss Fit benchmark:
             // var summary = BenchmarkRunner.Run<DoubleGaussFitBenchmark>();

@@ -9,14 +9,20 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
 {
     public static class DoubleGaussFitExample
     {
-        public static void RunExample(double noisePercentage = 0.15, bool useBadInitialGuess = true)
+        public static void RunExample(double noisePercentage = 0.15, bool useBadInitialGuess = true, bool csvOutputOnly = false)
         {
-            Console.WriteLine($"Running Double Gaussian Fit Example (Noise: {noisePercentage:P0}, Bad Guess: {useBadInitialGuess})...");
+            if (!csvOutputOnly)
+            {
+                Console.WriteLine($"Running Double Gaussian Fit Example (Noise: {noisePercentage:P0}, Bad Guess: {useBadInitialGuess})...");
+            }
 
             // 1. Define True Parameters
             double[] trueParameters = { 10.0, 20.0, 3.0, 15.0, 40.0, 5.0 };
-            Console.WriteLine("\n--- True Parameters ---");
-            PrintParameters("True", trueParameters);
+            if (!csvOutputOnly) 
+            {
+                Console.WriteLine("\n--- True Parameters ---");
+                PrintParameters("True", trueParameters, csvOutputOnly);
+            }
 
             // 2. Generate Synthetic Data
             int numDataPoints = 100;
@@ -44,15 +50,18 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             {
                 initialParameters = new double[] { 8.0, 15.0, 2.0, 12.0, 35.0, 4.0 }; // Original good guess
             }
-            Console.WriteLine("\n--- Initial Guess ---");
-            PrintParameters("Initial", initialParameters);
+            if (!csvOutputOnly) 
+            {
+                Console.WriteLine("\n--- Initial Guess ---");
+                PrintParameters("Initial", initialParameters, csvOutputOnly);
+            }
 
             // Define bounds for parameters [A1, mu1, sigma1, A2, mu2, sigma2]
             double[] lowerBounds = { 0.1,  xMin,  0.1,  0.1,  xMin,  0.1 }; // Amplitudes and Sigmas > 0.1, Mus within data range
             double[] upperBounds = { 50.0, xMax, 30.0, 50.0, xMax, 30.0 }; // Max Amplitudes, Sigmas up to half data range
 
             // --- Our NelderMeadDouble Implementation ---
-            Console.WriteLine("\n--- Running Our NelderMeadDouble (with Bounds) ---");
+            if (!csvOutputOnly) Console.WriteLine("\n--- Running Our NelderMeadDouble (with Bounds) ---");
             ObjectiveFunctionDouble ourObjectiveFunc = (pars) => 
                 DoubleGaussModel.SumSquaredResiduals(pars, xData, yData);
             
@@ -67,12 +76,15 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
                 tolerance: 1e-8
             );
             watchOur.Stop();
-            PrintParameters("Our Found", bestParametersOur);
-            Console.WriteLine($"Our SSR: {DoubleGaussModel.SumSquaredResiduals(bestParametersOur, xData, yData):E2}");
-            Console.WriteLine($"Our Time: {watchOur.ElapsedMilliseconds} ms");
+            if (!csvOutputOnly) 
+            {
+                PrintParameters("Our Found", bestParametersOur, csvOutputOnly);
+                Console.WriteLine($"Our SSR: {DoubleGaussModel.SumSquaredResiduals(bestParametersOur, xData, yData):E2}");
+                Console.WriteLine($"Our Time: {watchOur.ElapsedMilliseconds} ms");
+            }
 
             // --- Running NLopt (NelderMead with Bounds) ---
-            Console.WriteLine("\n--- Running NLopt (NelderMead with Bounds) ---");
+            if (!csvOutputOnly) Console.WriteLine("\n--- Running NLopt (NelderMead with Bounds) ---");
             // NLopt requires double[] for initial parameters
             double[] initialParametersNlopt = (double[])initialParameters.Clone();
             var watchNLopt = System.Diagnostics.Stopwatch.StartNew();
@@ -95,15 +107,18 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
                 maxeval: 20000);
             watchNLopt.Stop();
             
-            PrintParameters("NLopt Found", resultNLopt.OptimalParameters);
-            Console.WriteLine($"NLopt SSR: {resultNLopt.OptimalValue:E2}");
-            Console.WriteLine($"NLopt Result: {resultNLopt.ResultMessage} ({resultNLopt.ResultCode})");
-            Console.WriteLine($"NLopt Time: {watchNLopt.ElapsedMilliseconds} ms");
+            if (!csvOutputOnly) 
+            {
+                PrintParameters("NLopt Found", resultNLopt.OptimalParameters, csvOutputOnly);
+                Console.WriteLine($"NLopt SSR: {resultNLopt.OptimalValue:E2}");
+                Console.WriteLine($"NLopt Result: {resultNLopt.ResultMessage} ({resultNLopt.ResultCode})");
+                Console.WriteLine($"NLopt Time: {watchNLopt.ElapsedMilliseconds} ms");
+            }
 
-            // --- Generate Data for Plotting ---
-            Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
-            Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData");
-            
+            if (csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData"); // Header only in CSV mode
+            else Console.WriteLine("\n--- Data for Plotting (CSV format) ---");
+            if (!csvOutputOnly) Console.WriteLine("X,Y_True,Y_Fitted_Our,Y_Fitted_NLopt,Y_NoisyData"); // Redundant if csvOutputOnly, but fine
+
             // For smoother function plots, we can use a denser set of X values than just xData
             // Or, for simplicity, just use the xData points and connect them in the plot.
             // Let's use xData for direct comparison with noisy points.
@@ -130,8 +145,10 @@ namespace Optimization.Benchmarks // Re-using namespace for simplicity, can be a
             */
         }
 
-        private static void PrintParameters(string label, ReadOnlySpan<double> parameters)
+        private static void PrintParameters(string label, ReadOnlySpan<double> parameters, bool csvOutputOnly = false)
         {
+            if (csvOutputOnly) return; // Don't print parameters in CSV-only mode
+
             if (parameters != null && parameters.Length == 6)
             {
                 Console.WriteLine($"{label}: A1={parameters[0]:F2}, mu1={parameters[1]:F2}, sigma1={parameters[2]:F2}, " +

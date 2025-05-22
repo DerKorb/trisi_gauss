@@ -75,9 +75,15 @@ namespace Optimization.Benchmarks
     {
         public static void Main(string[] args)
         {
+            // To run the original Nelder-Mead vs MathNet on Rosenbrock:
             // var summary = BenchmarkRunner.Run<NelderMeadBenchmark>();
-            // Console.WriteLine(summary);
-            DoubleGaussFitExample.RunExample(); // Run the example instead
+            
+            // To run the Double Gauss Fit example (not a benchmark):
+            // DoubleGaussFitExample.RunExample();
+
+            // To run the Double Gauss Fit benchmark:
+            var summary = BenchmarkRunner.Run<DoubleGaussFitBenchmark>();
+            Console.WriteLine(summary);
         }
     }
 } 
